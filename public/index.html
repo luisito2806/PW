@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agenda tu Cita - Barbería</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .card {
+            background: #1e1e1e;
+            padding: 25px;
+            border-radius: 8px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        h2 { color: #f39c12; margin-top: 0; text-align: center; }
+        label { display: block; margin: 12px 0 5px; font-size: 14px; }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #333;
+            background: #2d3436;
+            color: #fff;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            margin-top: 20px;
+            padding: 12px;
+            background-color: #f39c12;
+            border: none;
+            border-radius: 5px;
+            color: #fff;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        button:hover { background-color: #d68910; }
+        button:disabled { background-color: #555; cursor: not-allowed; }
+        #mensaje { margin-top: 15px; text-align: center; font-size: 14px; }
+        option:disabled { color: #e74c3c; background-color: #1a1a1a; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>Agendar Cita</h2>
+    <form id="formCita">
+        <label>Nombre completo:</label>
+        <input type="text" id="cliente" required placeholder="Tu nombre">
+
+        <label>Teléfono (10 dígitos):</label>
+        <input type="tel" id="telefono" required placeholder="Ej. 4531234567">
+
+        <label>Servicio:</label>
+        <select id="servicio">
+            <option value="Corte Clásico" data-precio="150">Corte Clásico - $150</option>
+            <option value="Corte + Barba" data-precio="250">Corte + Barba - $250</option>
+            <option value="Corte + Ceja" data-precio="200">Corte + Ceja - $200</option>
+            <option value="Servicio Completo" data-precio="300">Completo (Pelo, Barba, Ceja) - $300</option>
+        </select>
+
+        <label>Fecha:</label>
+        <input type="date" id="fecha" required>
+
+        <label>Hora:</label>
+        <select id="hora" required>
+            <option value="" disabled selected>Selecciona una fecha primero</option>
+            <option value="02:00 PM">02:00 PM</option>
+            <option value="03:00 PM">03:00 PM</option>
+            <option value="04:00 PM">04:00 PM</option>
+            <option value="05:00 PM">05:00 PM</option>
+            <option value="06:00 PM">06:00 PM</option>
+            <option value="07:00 PM">07:00 PM</option>
+        </select>
+
+        <button type="submit" id="btnSubmit">Confirmar Cita</button>
+    </form>
+    <div id="mensaje"></div>
+</div>
+
+<script>
+    const inputFecha = document.getElementById('fecha');
+    const selectHora = document.getElementById('hora');
+    const inputTelefono = document.getElementById('telefono');
+    const form = document.getElementById('formCita');
+    const mensajeDiv = document.getElementById('mensaje');
+    const btnSubmit = document.getElementById('btnSubmit');
+
+    // Fechas límites (hoy hasta 30 días)
+    const hoy = new Date();
+    const maxFecha = new Date();
+    maxFecha.setDate(hoy.getDate() + 30);
+    const formatoFecha = (d) => d.toISOString().split('T')[0];
+    inputFecha.min = formatoFecha(hoy);
+    inputFecha.max = formatoFecha(maxFecha);
+
+    // Limitar a 10 dígitos numéricos en tiempo real
+    inputTelefono.addEventListener('input', (e) => {
+        e.target.value = e.target.value.replace(/\D/g, '').slice(0, 10);
+    });
+
+    // Validar disponibilidad del día seleccionado
+    inputFecha.addEventListener('change', async () => {
+        const fecha = inputFecha.value;
+        if (!fecha) return;
+
+        mensajeDiv.innerText = '';
+        btnSubmit.disabled = false;
+
+        try {
+            const res = await fetch(`/api/disponibilidad?fecha=${fecha}`);
+            const data = await res.json();
+
+            if (data.bloqueado) {
+                mensajeDiv.style.color = '#e74c3c';
+                mensajeDiv.innerText = `Día no disponible: ${data.motivo}`;
+                selectHora.disabled = true;
+                btnSubmit.disabled = true;
+                return;
+            }
+
+            selectHora.disabled = false;
+            Array.from(selectHora.options).forEach(opt => {
+                if (opt.value === '') return;
+                if (data.horasOcupadas.includes(opt.value)) {
+                    opt.disabled = true;
+                    opt.innerText = `${opt.value} (Ocupado)`;
+                } else {
+                    opt.disabled = false;
+                    opt.innerText = opt.value.replace(' (Ocupado)', '');
+                }
+            });
+            selectHora.value = '';
+        } catch (error) {
+            console.error('Error al revisar disponibilidad:', error);
+        }
+    });
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        if (inputTelefono.value.length !== 10) {
+            mensajeDiv.style.color = '#d63031';
+            mensajeDiv.innerText = 'El teléfono debe tener 10 dígitos exactos.';
+            return;
+        }
+
+        const servicioSelect = document.getElementById('servicio');
+        const precio = servicioSelect.options[servicioSelect.selectedIndex].getAttribute('data-precio');
+
+        const citaData = {
+            cliente: document.getElementById('cliente').value,
+            telefono: inputTelefono.value,
+            servicio: servicioSelect.value,
+            precio: parseFloat(precio),
+            fecha: inputFecha.value,
+            hora: selectHora.value
+        };
+
+        try {
+            const res = await fetch('/api/citas', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(citaData)
+            });
+
+            const data = await res.json();
+
+            if (res.ok) {
+                mensajeDiv.style.color = '#00b894';
+                mensajeDiv.innerText = '¡Cita registrada correctamente!';
+                form.reset();
+            } else {
+                mensajeDiv.style.color = '#d63031';
+                mensajeDiv.innerText = data.error || 'No se pudo agendar.';
+            }
+        } catch (err) {
+            mensajeDiv.style.color = '#d63031';
+            mensajeDiv.innerText = 'Error de conexión con el servidor.';
+        }
+    });
+</script>
+
+</body>
+</html>

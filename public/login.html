@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acceso Administrador - Barbería</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .card {
+            background: #1e1e1e;
+            padding: 30px;
+            border-radius: 8px;
+            width: 320px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+            text-align: center;
+        }
+        h2 { color: #f39c12; margin-top: 0; }
+        p { color: #aaa; font-size: 14px; margin-bottom: 20px; }
+        input {
+            width: 100%;
+            padding: 12px;
+            border-radius: 5px;
+            border: 1px solid #333;
+            background: #2d3436;
+            color: #fff;
+            box-sizing: border-box;
+            font-size: 15px;
+        }
+        button {
+            width: 100%;
+            margin-top: 15px;
+            padding: 12px;
+            background-color: #f39c12;
+            border: none;
+            border-radius: 5px;
+            color: #fff;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        button:hover { background-color: #d68910; }
+        #errorMsg { color: #d63031; font-size: 13px; margin-top: 12px; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>Panel Barbería</h2>
+    <p>Ingresa la contraseña administrativa</p>
+    <form id="formLogin">
+        <input type="password" id="password" placeholder="Contraseña" required autofocus>
+        <button type="submit">Entrar al Panel</button>
+    </form>
+    <div id="errorMsg"></div>
+</div>
+
+<script>
+    document.getElementById('formLogin').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const password = document.getElementById('password').value;
+        const errorDiv = document.getElementById('errorMsg');
+        errorDiv.innerText = '';
+
+        try {
+            const res = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password })
+            });
+
+            const data = await res.json();
+
+            if (res.ok) {
+                // Guardar la autorización en el navegador
+                localStorage.setItem('adminToken', data.token);
+                window.location.href = '/admin.html';
+            } else {
+                errorDiv.innerText = data.error || 'Clave incorrecta';
+            }
+        } catch (err) {
+            errorDiv.innerText = 'Error de conexión con el servidor';
+        }
+    });
+</script>
+
+</body>
+</html>
