@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>The Heritage | Reserva de Turnos</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #0c0d0e;
+            --surface-1: #151719;
+            --surface-2: #1e2124;
+            --surface-3: #282c31;
+            --border-subtle: #2d3238;
+            --border-strong: #3e444c;
+            
+            --text-primary: #f4f5f6;
+            --text-secondary: #9aa0a6;
+            --text-muted: #666c72;
+            
+            --accent-brass: #d4af37;
+            --accent-brass-hover: #e5c158;
+            --accent-brass-dim: rgba(212, 175, 55, 0.12);
+            
+            --semantic-success: #2ecc71;
+            --semantic-danger: #e74c3c;
+            --semantic-danger-dim: rgba(231, 76, 60, 0.12);
+
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 16px;
+            
+            --font-display: 'Cinzel', Georgia, serif;
+            --font-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            
+            --ease-out-quad: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            --transition-speed: 240ms;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            font-family: var(--font-body);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 24px 16px 60px;
+            background-image: 
+                radial-gradient(ellipse at 50% 0%, rgba(212, 175, 55, 0.08) 0%, transparent 60%),
+                radial-gradient(circle at 100% 100%, rgba(255, 255, 255, 0.02) 0%, transparent 50%);
+        }
+
+        .viewport-wrapper {
+            width: 100%;
+            max-width: 440px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* Encabezado Editorial */
+        .brand-header {
+            text-align: center;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-subtle);
+            position: relative;
+        }
+
+        .brand-badge {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 2.5px;
+            text-transform: uppercase;
+            color: var(--accent-brass);
+            background: var(--accent-brass-dim);
+            padding: 4px 10px;
+            border-radius: var(--radius-sm);
+            border: 1px solid rgba(212, 175, 55, 0.25);
+            margin-bottom: 10px;
+        }
+
+        .brand-title {
+            font-family: var(--font-display);
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: var(--text-primary);
+            text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+
+        .brand-subtitle {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-weight: 400;
+            line-height: 1.4;
+        }
+
+        /* Ticket de Cita Activa */
+        .ticket-receipt {
+            background: var(--surface-1);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-lg);
+            padding: 22px;
+            position: relative;
+            box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+            border-top: 3px solid var(--semantic-success);
+        }
+
+        .ticket-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px dashed var(--border-strong);
+        }
+
+        .ticket-status-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--semantic-success);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .ticket-status-dot {
+            width: 7px;
+            height: 7px;
+            background: var(--semantic-success);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--semantic-success);
+        }
+
+        .ticket-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px 10px;
+            margin-bottom: 18px;
+        }
+
+        .ticket-item {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .ticket-item.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .ticket-key {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .ticket-val {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .btn-cancel-ticket {
+            width: 100%;
+            padding: 11px;
+            background: var(--semantic-danger-dim);
+            color: var(--semantic-danger);
+            border: 1px solid rgba(231, 76, 60, 0.3);
+            border-radius: var(--radius-md);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            transition: all var(--transition-speed) var(--ease-out-quad);
+        }
+
+        .btn-cancel-ticket:hover {
+            background: var(--semantic-danger);
+            color: #ffffff;
+        }
+
+        /* Formularios y Selectores */
+        .step-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .section-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--accent-brass);
+            margin-bottom: 8px;
+        }
+
+        .section-label span {
+            font-size: 10px;
+            background: var(--surface-3);
+            color: var(--text-secondary);
+            padding: 2px 6px;
+            border-radius: var(--radius-sm);
+        }
+
+        .custom-date-wrapper {
+            position: relative;
+        }
+
+        input[type="date"] {
+            width: 100%;
+            padding: 14px 16px;
+            background: var(--surface-1);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-family: var(--font-body);
+            font-size: 15px;
+            font-weight: 500;
+            outline: none;
+            transition: border-color var(--transition-speed) var(--ease-out-quad), box-shadow var(--transition-speed) var(--ease-out-quad);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            cursor: pointer;
+            color-scheme: dark;
+        }
+
+        input[type="date"]:focus {
+            border-color: var(--accent-brass);
+            box-shadow: 0 0 0 3px var(--accent-brass-dim);
+        }
+
+        /* Estados de carga / aviso */
+        #avisoEstado {
+            font-size: 13px;
+            text-align: center;
+            min-height: 18px;
+            transition: all var(--transition-speed);
+        }
+
+        /* Grid de Horarios */
+        .hours-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .hour-pill {
+            background: var(--surface-1);
+            border: 1px solid var(--border-subtle);
+            padding: 14px 10px;
+            border-radius: var(--radius-md);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            cursor: pointer;
+            position: relative;
+            transition: transform var(--transition-speed) var(--ease-out-quad), 
+                        border-color var(--transition-speed) var(--ease-out-quad), 
+                        background var(--transition-speed) var(--ease-out-quad);
+            user-select: none;
+        }
+
+        .hour-pill:hover:not(.disabled) {
+            border-color: var(--accent-brass);
+            background: var(--surface-2);
+            transform: translateY(-2px);
+        }
+
+        .hour-pill:active:not(.disabled) {
+            transform: translateY(0);
+        }
+
+        .hour-time {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: 0.5px;
+        }
+
+        .hour-caption {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--accent-brass);
+            font-weight: 600;
+        }
+
+        .hour-pill.disabled {
+            background: rgba(21, 23, 25, 0.4);
+            border-color: transparent;
+            cursor: not-allowed;
+            opacity: 0.45;
+        }
+
+        .hour-pill.disabled .hour-time {
+            color: var(--text-muted);
+            text-decoration: line-through;
+        }
+
+        .hour-pill.disabled .hour-caption {
+            color: var(--text-muted);
+        }
+
+        /* Modal Overlay & Card */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(12, 13, 14, 0.82);
+            backdrop-filter: blur(8px);
+            justify-content: center;
+            align-items: flex-end;
+            padding: 0;
+            z-index: 1000;
+            transition: opacity var(--transition-speed) var(--ease-out-quad);
+        }
+
+        @media (min-width: 480px) {
+            .modal-overlay {
+                align-items: center;
+                padding: 16px;
+            }
+        }
+
+        .modal-card {
+            background: var(--surface-1);
+            border: 1px solid var(--border-strong);
+            width: 100%;
+            max-width: 440px;
+            border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+            padding: 28px 24px;
+            box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.7);
+            animation: slideUp var(--transition-speed) var(--ease-out-quad);
+        }
+
+        @media (min-width: 480px) {
+            .modal-card {
+                border-radius: var(--radius-lg);
+            }
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(30px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .modal-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-title {
+            font-family: var(--font-display);
+            font-size: 20px;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .modal-schedule-preview {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: var(--accent-brass);
+            font-weight: 600;
+            background: var(--accent-brass-dim);
+            padding: 4px 12px;
+            border-radius: var(--radius-sm);
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .form-input, .form-select {
+            width: 100%;
+            padding: 13px 14px;
+            background: var(--surface-2);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-family: var(--font-body);
+            font-size: 14px;
+            outline: none;
+            transition: border-color var(--transition-speed) var(--ease-out-quad);
+        }
+
+        .form-input:focus, .form-select:focus {
+            border-color: var(--accent-brass);
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        .btn-modal-cancel {
+            flex: 1;
+            padding: 14px;
+            background: var(--surface-3);
+            color: var(--text-secondary);
+            border: none;
+            border-radius: var(--radius-md);
+            font-family: var(--font-body);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background var(--transition-speed);
+        }
+
+        .btn-modal-cancel:hover {
+            background: var(--border-strong);
+            color: var(--text-primary);
+        }
+
+        .btn-modal-confirm {
+            flex: 2;
+            padding: 14px;
+            background: var(--accent-brass);
+            color: #0c0d0e;
+            border: none;
+            border-radius: var(--radius-md);
+            font-family: var(--font-body);
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            transition: background var(--transition-speed);
+        }
+
+        .btn-modal-confirm:hover {
+            background: var(--accent-brass-hover);
+        }
+    </style>
+</head>
+<body>
+
+<div class="viewport-wrapper">
+    <header class="brand-header">
+        <span class="brand-badge">Sartorial Grooming</span>
+        <h1 class="brand-title">The Heritage</h1>
+        <p class="brand-subtitle">Servicio de corte tradicional y afeitado fino</p>
+    </header>
+
+    <div id="seccionTicketActivo" style="display: none;"></div>
+
+    <main class="step-container" id="seccionAgendar">
+        <div>
+            <label class="section-label">
+                <span>01</span> Selecciona la jornada
+            </label>
+            <div class="custom-date-wrapper">
+                <input type="date" id="inputFecha">
+            </div>
+            <div id="avisoEstado"></div>
+        </div>
+
+        <div id="contenedorHoras" style="display: none;">
+            <label class="section-label">
+                <span>02</span> Elige tu turno
+            </label>
+            <div class="hours-grid" id="listaHoras"></div>
+        </div>
+    </main>
+</div>
+
+<div class="modal-overlay" id="modalCita">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h2 class="modal-title">Confirmar Cita</h2>
+            <div class="modal-schedule-preview" id="resumenHorarioModal"></div>
+        </div>
+
+        <form id="formFinal">
+            <div class="form-group">
+                <label class="form-label" for="nombreCliente">Nombre y Apellidos</label>
+                <input type="text" id="nombreCliente" class="form-input" required placeholder="Ej. Javier Estrada" autocomplete="name">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="telefonoCliente">Teléfono (WhatsApp)</label>
+                <input type="tel" id="telefonoCliente" class="form-input" required placeholder="10 dígitos numéricos" autocomplete="tel">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="servicioSelect">Servicio Deseado</label>
+                <select id="servicioSelect" class="form-select">
+                    <option value="Corte Clásico" data-precio="150">Corte Clásico — $150</option>
+                    <option value="Corte + Barba" data-precio="250">Corte & Arreglo de Barba — $250</option>
+                    <option value="Corte + Ceja" data-precio="200">Corte & Perfilado de Ceja — $200</option>
+                    <option value="Ritual Completo" data-precio="300">Ritual Completo (Pelo, Barba, Toalla Caliente) — $300</option>
+                </select>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn-modal-cancel" onclick="cerrarModal()">Volver</button>
+                <button type="submit" class="btn-modal-confirm">Confirmar Turno</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    const API_URL = 'http://localhost:3000';
+
+    const HORARIOS_JORNADA = [
+        "10:00 AM", "11:00 AM", "12:00 PM", "01:00 PM", 
+        "02:00 PM", "03:00 PM", "04:00 PM", "05:00 PM", 
+        "06:00 PM", "07:00 PM"
+    ];
+
+    const meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+    const diasSemana = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+    function formatearFechaSinAnio(fechaString) {
+        const [anio, mes, dia] = fechaString.split('-').map(Number);
+        const dateObj = new Date(anio, mes - 1, dia);
+        return `${diasSemana[dateObj.getDay()]}, ${dia} de ${meses[dateObj.getMonth()]}`;
+    }
+
+    const inputFecha = document.getElementById('inputFecha');
+    const contenedorHoras = document.getElementById('contenedorHoras');
+    const listaHoras = document.getElementById('listaHoras');
+    const avisoEstado = document.getElementById('avisoEstado');
+    const modalCita = document.getElementById('modalCita');
+    const resumenHorarioModal = document.getElementById('resumenHorarioModal');
+    const inputTelefono = document.getElementById('telefonoCliente');
+    const seccionTicketActivo = document.getElementById('seccionTicketActivo');
+
+    let horaSeleccionada = '';
+
+    const hoy = new Date();
+    const maxFecha = new Date();
+    maxFecha.setDate(hoy.getDate() + 30);
+    const formatoISO = (d) => d.toISOString().split('T')[0];
+    inputFecha.min = formatoISO(hoy);
+    inputFecha.max = formatoISO(maxFecha);
+
+    inputTelefono.addEventListener('input', (e) => {
+        e.target.value = e.target.value.replace(/\D/g, '').slice(0, 10);
+    });
+
+    function revisarCitaGuardada() {
+        const citaGuardada = localStorage.getItem('miCitaBarberia');
+        if (citaGuardada) {
+            const cita = JSON.parse(citaGuardada);
+            seccionTicketActivo.style.display = 'block';
+            seccionTicketActivo.innerHTML = `
+                <div class="ticket-receipt">
+                    <div class="ticket-header">
+                        <div class="ticket-status-label">
+                            <span class="ticket-status-dot"></span> Turno Confirmado
+                        </div>
+                        <span style="font-size: 11px; color: var(--text-muted); font-weight: 600;">ID #${cita.id || 'AUTH'}</span>
+                    </div>
+                    <div class="ticket-grid">
+                        <div class="ticket-item">
+                            <span class="ticket-key">Cliente</span>
+                            <span class="ticket-val">${cita.cliente}</span>
+                        </div>
+                        <div class="ticket-item">
+                            <span class="ticket-key">Horario</span>
+                            <span class="ticket-val">${cita.hora}</span>
+                        </div>
+                        <div class="ticket-item full-width">
+                            <span class="ticket-key">Fecha</span>
+                            <span class="ticket-val">${cita.fechaTexto}</span>
+                        </div>
+                        <div class="ticket-item full-width">
+                            <span class="ticket-key">Servicio</span>
+                            <span class="ticket-val">${cita.servicio} — $${cita.precio} MXN</span>
+                        </div>
+                    </div>
+                    <button class="btn-cancel-ticket" onclick="cancelarMiCita(${cita.id})">Cancelar Mi Reserva</button>
+                </div>
+            `;
+        } else {
+            seccionTicketActivo.style.display = 'none';
+        }
+    }
+
+    async function cancelarMiCita(id) {
+        if (!confirm('¿Deseas revocar tu cita programada?')) return;
+        try {
+            await fetch(`${API_URL}/api/citas/${id}`, { method: 'DELETE' });
+            localStorage.removeItem('miCitaBarberia');
+            revisarCitaGuardada();
+            if (inputFecha.value) inputFecha.dispatchEvent(new Event('change'));
+        } catch (err) {
+            alert('Error al procesar la cancelación.');
+        }
+    }
+
+    inputFecha.addEventListener('change', async () => {
+        const fecha = inputFecha.value;
+        if (!fecha) return;
+
+        avisoEstado.innerText = 'Sincronizando disponibilidad...';
+        avisoEstado.style.color = 'var(--text-muted)';
+        contenedorHoras.style.display = 'none';
+
+        try {
+            const res = await fetch(`${API_URL}/api/disponibilidad?fecha=${fecha}`);
+            const data = await res.json();
+
+            if (data.bloqueado) {
+                avisoEstado.style.color = 'var(--semantic-danger)';
+                avisoEstado.innerText = `Jornada no disponible: ${data.motivo}`;
+                return;
+            }
+
+            avisoEstado.innerText = '';
+            renderizarHorarios(data.horasOcupadas || [], fecha);
+            contenedorHoras.style.display = 'block';
+
+        } catch (err) {
+            avisoEstado.style.color = 'var(--semantic-danger)';
+            avisoEstado.innerText = 'Sin conexión con el servicio.';
+        }
+    });
+
+    function renderizarHorarios(ocupadas, fechaSeleccionada) {
+        listaHoras.innerHTML = '';
+        const esHoy = fechaSeleccionada === formatoISO(new Date());
+        const horaActual = new Date().getHours();
+
+        HORARIOS_JORNADA.forEach(h => {
+            const card = document.createElement('div');
+            card.className = 'hour-pill';
+
+            const hora24 = convertirA24h(h);
+            const yaPaso = esHoy && hora24 <= horaActual;
+            const noDisponible = ocupadas.includes(h) || yaPaso;
+
+            if (noDisponible) {
+                card.classList.add('disabled');
+                card.innerHTML = `
+                    <span class="hour-time">${h}</span>
+                    <span class="hour-caption">${yaPaso ? 'Expirado' : 'Ocupado'}</span>
+                `;
+            } else {
+                card.innerHTML = `
+                    <span class="hour-time">${h}</span>
+                    <span class="hour-caption">Disponible</span>
+                `;
+                card.onclick = () => abrirModal(h);
+            }
+
+            listaHoras.appendChild(card);
+        });
+    }
+
+    function convertirA24h(horaTexto) {
+        const [tiempo, mod] = horaTexto.split(' ');
+        let [horas] = tiempo.split(':');
+        horas = parseInt(horas, 10);
+        if (mod === 'PM' && horas !== 12) horas += 12;
+        if (mod === 'AM' && horas === 12) horas = 0;
+        return horas;
+    }
+
+    function abrirModal(hora) {
+        horaSeleccionada = hora;
+        const textoFecha = formatearFechaSinAnio(inputFecha.value);
+        resumenHorarioModal.innerText = `${textoFecha} · ${hora}`;
+        modalCita.style.display = 'flex';
+    }
+
+    function cerrarModal() {
+        modalCita.style.display = 'none';
+        document.getElementById('formFinal').reset();
+    }
+
+    document.getElementById('formFinal').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        if (inputTelefono.value.length !== 10) {
+            alert('El número telefónico debe constar de 10 dígitos.');
+            return;
+        }
+
+        const sel = document.getElementById('servicioSelect');
+        const fechaTexto = formatearFechaSinAnio(inputFecha.value);
+        const citaPayload = {
+            cliente: document.getElementById('nombreCliente').value.trim(),
+            telefono: inputTelefono.value,
+            servicio: sel.value,
+            precio: parseFloat(sel.options[sel.selectedIndex].getAttribute('data-precio')),
+            fecha: inputFecha.value,
+            hora: horaSeleccionada
+        };
+
+        try {
+            const res = await fetch(`${API_URL}/api/citas`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(citaPayload)
+            });
+
+            const data = await res.json();
+
+            if (res.ok) {
+                const citaLocal = {
+                    id: data.id,
+                    ...citaPayload,
+                    fechaTexto
+                };
+                localStorage.setItem('miCitaBarberia', JSON.stringify(citaLocal));
+
+                cerrarModal();
+                revisarCitaGuardada();
+                inputFecha.dispatchEvent(new Event('change'));
+            } else {
+                alert('No fue posible completar la reserva: ' + (data.error || 'Horario no disponible.'));
+            }
+        } catch (err) {
+            alert('Error de enlace con el servidor central.');
+        }
+    });
+
+    revisarCitaGuardada();
+</script>
+
+</body>
+</html>

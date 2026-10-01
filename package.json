@@ -1,7 +1,7 @@
 {
   "name": "pw",
   "version": "1.0.0",
-  "description": "",
+  "description": "Programa para agendar citas",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -11,7 +11,7 @@
     "url": "git+https://github.com/luisito2806/PW.git"
   },
   "keywords": [],
-  "author": "",
+  "author": "Luis Angel Vazquez Estrada",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
