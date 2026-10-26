@@ -1527,36 +1527,22 @@
     let CITAS_AGENDA = {};
     let filtroActualAgenda = '';
 
-    /* ── CONVERTIDOR INTELIGENTE DE UBICACIÓN GOOGLE MAPS ─── */
-    function normalizarUrlMaps(valor) {
-      if (!valor) return 'https://maps.google.com';
-      let v = valor.trim();
-
-      // Si pegaron un código <iframe src="..."> de Google Maps, extraemos el src
-      const iframeMatch = v.match(/src=["']([^"']+)["']/i);
-      if (iframeMatch && iframeMatch[1]) {
-        v = iframeMatch[1];
-      }
-
-      // Si ya es una URL con http:// o https://, pero NO es el genérico maps.google.com vacío
-      if (/^https?:\/\//i.test(v)) {
-        return v;
-      }
-
-      // Si empieza con maps.app.goo.gl, goo.gl/maps o google.com/maps sin https://
-      if (/^(maps\.app\.goo\.gl|goo\.gl\/maps|www\.google\.|google\.com\/maps)/i.test(v)) {
-        return 'https://' + v;
-      }
-
-      // Si escribieron el nombre del establecimiento, dirección o coordenadas, creamos ruta directa GPS
-      return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(v)}`;
-    }
-
-    function probarUbicacionMaps() {
+    /* ── UBICACIÓN GOOGLE MAPS (el servidor convierte dirección, iframe o link) ── */
+    async function probarUbicacionMaps() {
       const raw = document.getElementById('confMaps').value.trim();
       if (!raw) return alert('Escribe primero la dirección del local o pega el link de Google Maps.');
-      const urlFinal = normalizarUrlMaps(raw);
-      window.open(urlFinal, '_blank', 'noopener');
+      // La pestaña se abre antes del fetch para que el navegador no la bloquee como pop-up
+      const ventana = window.open('', '_blank');
+      try {
+        const res = await fetch(`${API_URL}/api/config/maps-url?valor=${encodeURIComponent(raw)}`, { headers: authHeaders });
+        const data = await res.json();
+        if (!res.ok) throw new Error();
+        ventana.opener = null;
+        ventana.location.href = data.url;
+      } catch {
+        ventana.close();
+        alert('No se pudo generar el link de Google Maps.');
+      }
     }
 
     /* ── DATE HELPERS (ZONA HORARIA LOCAL) ────────────────── */
@@ -1573,6 +1559,24 @@
       const d = new Date();
       d.setDate(d.getDate() + 1);
       return toLocalISO(d);
+    }
+
+    function addDaysISO(isoDate, dias) {
+      const [y, m, d] = isoDate.split('-').map(Number);
+      return toLocalISO(new Date(y, m - 1, d + dias));
+    }
+
+    // Parámetros de /api/reportes: un día, "semana" (hoy y los 7 días siguientes) o todo
+    function paramsReporte(fecha, barberoId) {
+      const params = new URLSearchParams();
+      if (fecha === 'semana') {
+        params.append('desde', todayISO());
+        params.append('hasta', addDaysISO(todayISO(), 7));
+      } else if (fecha) {
+        params.append('fecha', fecha);
+      }
+      if (barberoId) params.append('barbero_id', barberoId);
+      return params;
     }
 
     function formatDateSpanish(isoDate) {
@@ -1978,15 +1982,12 @@
 
       const intervalo = document.getElementById('confIntervalo').value;
       const rawMaps  = document.getElementById('confMaps').value.trim();
-      const mapsUrlFinal = normalizarUrlMaps(rawMaps);
       const faltas   = document.getElementById('confMaxFaltas').value;
-
-      document.getElementById('confMaps').value = mapsUrlFinal;
 
       const cambios = [
         ['horario_semanal', JSON.stringify(horario)],
         ['intervalo_min', intervalo],
-        ['maps_url', mapsUrlFinal],
+        ['maps_url', rawMaps],
         ['max_faltas', faltas]
       ];
       try {
@@ -1998,6 +1999,9 @@
           const data = await fallida.json().catch(() => ({}));
           return alert(data.error || 'No se pudieron guardar algunos ajustes.');
         }
+        // El servidor convierte la ubicación en un link de Google Maps; se muestra el link guardado
+        const mapsGuardado = await respuestas[cambios.findIndex(([clave]) => clave === 'maps_url')].json();
+        document.getElementById('confMaps').value = mapsGuardado.valor;
         alert('Horario y ajustes del negocio guardados correctamente.');
         cargarTodoCatalogo();
       } catch {
@@ -2117,35 +2121,13 @@
     async function cargarReporte(fecha = '') {
       filtroActualAgenda = fecha;
       try {
-        const isSemana = (fecha === 'semana');
-        const queryFecha = (fecha && !isSemana) ? fecha : '';
         const barberoId = document.getElementById('filtroBarberoAgenda').value;
-
-        const params = new URLSearchParams();
-        if (queryFecha) params.append('fecha', queryFecha);
-        if (barberoId)  params.append('barbero_id', barberoId);
-
-        const url = `${API_URL}/api/reportes?${params.toString()}`;
+        const url = `${API_URL}/api/reportes?${paramsReporte(fecha, barberoId)}`;
         const res = await fetch(url, { headers: authHeaders });
 
         if (res.status === 403 || res.status === 401) { cerrarSesion(); return; }
 
-        let data = await res.json();
-
-        if (isSemana && data.citas) {
-          const hoyStr = todayISO();
-          const hoyDate = new Date(hoyStr + 'T00:00:00');
-          const proxSemanaDate = new Date(hoyStr + 'T00:00:00');
-          proxSemanaDate.setDate(hoyDate.getDate() + 7);
-
-          data.citas = data.citas.filter(c => {
-            const citaDate = new Date(c.fecha + 'T00:00:00');
-            return citaDate >= hoyDate && citaDate <= proxSemanaDate;
-          });
-
-          data.totalCitas = data.citas.length;
-          data.totalGanancias = data.citas.reduce((acc, c) => acc + (c.estado === 'completada' ? c.precio : 0), 0);
-        }
+        const data = await res.json();
 
         document.getElementById('kpiGanancias').textContent = `$${data.totalGanancias || 0}`;
         document.getElementById('kpiTotal').textContent = data.totalCitas || 0;
@@ -2350,46 +2332,13 @@
     /* ── LOAD REPORT (REPORTES SECTION) & EXPORT CSV ─────── */
     async function cargarReporteSeccion(fecha = '') {
       try {
-        const isSemana = (fecha === 'semana');
-        const queryFecha = (fecha && !isSemana) ? fecha : '';
         const barberoId = document.getElementById('filtroBarberoReporte').value;
-
-        const params = new URLSearchParams();
-        if (queryFecha) params.append('fecha', queryFecha);
-        if (barberoId)  params.append('barbero_id', barberoId);
-
-        const url = `${API_URL}/api/reportes?${params.toString()}`;
+        const url = `${API_URL}/api/reportes?${paramsReporte(fecha, barberoId)}`;
         const res = await fetch(url, { headers: authHeaders });
 
         if (res.status === 403 || res.status === 401) { cerrarSesion(); return; }
 
-        let data = await res.json();
-
-        if (isSemana && data.citas) {
-          const hoyStr = todayISO();
-          const hoyDate = new Date(hoyStr + 'T00:00:00');
-          const proxSemanaDate = new Date(hoyStr + 'T00:00:00');
-          proxSemanaDate.setDate(hoyDate.getDate() + 7);
-
-          const citasSemana = data.citas.filter(c => {
-            const citaDate = new Date(c.fecha + 'T00:00:00');
-            return citaDate >= hoyDate && citaDate <= proxSemanaDate;
-          });
-
-          data.citas = citasSemana;
-          data.totalCitas = citasSemana.length;
-          data.totalGanancias = citasSemana.reduce((acc, c) => acc + (c.estado === 'completada' ? c.precio : 0), 0);
-
-          const desgloseMap = {};
-          citasSemana.forEach(c => {
-            if (c.estado === 'completada') {
-              if (!desgloseMap[c.servicio]) desgloseMap[c.servicio] = { servicio: c.servicio, cantidad: 0, total: 0 };
-              desgloseMap[c.servicio].cantidad++;
-              desgloseMap[c.servicio].total += c.precio;
-            }
-          });
-          data.desglose = Object.values(desgloseMap);
-        }
+        const data = await res.json();
 
         ULTIMAS_CITAS_REPORTE = data.citas || [];
 

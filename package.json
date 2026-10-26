@@ -1,25 +1,20 @@
 {
   "name": "pw",
   "version": "1.0.0",
+  "private": true,
   "description": "Programa para agendar citas",
-  "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "install-backend": "npm --prefix backend install",
+    "start": "npm --prefix backend start"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/luisito2806/PW.git"
   },
-  "keywords": [],
   "author": "Luis Angel Vazquez Estrada",
   "license": "ISC",
-  "type": "commonjs",
   "bugs": {
     "url": "https://github.com/luisito2806/PW/issues"
   },
-  "homepage": "https://github.com/luisito2806/PW#readme",
-  "dependencies": {
-    "express": "^5.2.1",
-    "sqlite3": "^6.0.1"
-  }
+  "homepage": "https://github.com/luisito2806/PW#readme"
 }

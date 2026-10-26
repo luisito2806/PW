@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doo Barber — Agenda tu Cita</title>
     <meta name="description" content="Agenda tu cita en Doo Barber de forma simple y rápida. Elige tu servicio, fecha y hora sin esperas ni llamadas.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1185,7 +1185,8 @@
 
     function setStep(step) {
         document.getElementById('viewStep1').style.display = (step === 1) ? 'block' : 'none';
-        document.getElementById('viewStep2').style.display = (step === 2) ? 'block' : 'none';
+        // El paso 3 (Confirmar) es el modal de datos, que se abre sobre el paso 2
+        document.getElementById('viewStep2').style.display = (step >= 2) ? 'block' : 'none';
 
         [1,2,3].forEach(s => {
             const ci = document.getElementById(`sc${s}`);
@@ -1212,18 +1213,6 @@
     }
 
     /* ── CARGAR CATÁLOGO DINÁMICO DESDE EL BACKEND ── */
-    function normalizarUrlMaps(valor) {
-        if (!valor) return 'https://maps.google.com';
-        let v = valor.trim();
-        const iframeMatch = v.match(/src=["']([^"']+)["']/i);
-        if (iframeMatch && iframeMatch[1]) v = iframeMatch[1];
-        if (/^https?:\/\//i.test(v)) return v;
-        if (/^(maps\.app\.goo\.gl|goo\.gl\/maps|www\.google\.|google\.com\/maps)/i.test(v)) {
-            return 'https://' + v;
-        }
-        return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(v)}`;
-    }
-
     async function cargarCatalogo() {
         try {
             const res = await fetch(`${API_URL}/api/catalogo?t=${Date.now()}`);
@@ -1250,7 +1239,7 @@
                 if (data.dias_max_reserva) maxISO = calcularMaxISO(Number(data.dias_max_reserva));
                 catalogoCargado = true;
                 if (data.maps_url) {
-                    MAPS_URL = normalizarUrlMaps(data.maps_url);
+                    MAPS_URL = data.maps_url;
                     const btnMaps = document.getElementById('headerMapsBtn');
                     if (btnMaps) btnMaps.href = MAPS_URL;
                 }
@@ -1525,11 +1514,13 @@
 
         document.getElementById('modalCita').classList.add('open');
         document.body.style.overflow = 'hidden';
+        setStep(3);
     }
 
     function closeModal() {
         document.getElementById('modalCita').classList.remove('open');
         document.body.style.overflow = '';
+        setStep(2);
     }
 
     document.getElementById('btnCloseModal').addEventListener('click', closeModal);
