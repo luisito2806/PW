@@ -1161,6 +1161,16 @@
     }
     function pad(n) { return String(n).padStart(2,'0'); }
 
+    // Escapa texto antes de insertarlo con innerHTML (evita inyección de código)
+    function escapeHtml(valor) {
+        return String(valor ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     function formatLabel(iso) {
         if (!iso) return '';
         const [y,m,d] = iso.split('-');
@@ -1233,7 +1243,7 @@
                 // 2. Actualizar Logo del Negocio
                 if (data.logo_url) {
                     document.getElementById('clientLogoDots').innerHTML = `
-                        <img src="${data.logo_url}" alt="Logo" style="width:32px;height:32px;border-radius:8px;object-fit:cover;border:1px solid rgba(255,255,255,0.2);" />
+                        <img src="${escapeHtml(data.logo_url)}" alt="Logo" style="width:32px;height:32px;border-radius:8px;object-fit:cover;border:1px solid rgba(255,255,255,0.2);" />
                     `;
                 }
 
@@ -1271,7 +1281,7 @@
                 return;
             }
             if (c.id) {
-                const res = await fetch(`${API_URL}/api/citas/${c.id}/ticket-status?t=${Date.now()}`);
+                const res = await fetch(`${API_URL}/api/citas/${encodeURIComponent(c.id)}/ticket-status?token=${encodeURIComponent(c.token_cancelacion || '')}&t=${Date.now()}`);
                 if (res.ok) {
                     const statusData = await res.json();
                     if (!statusData.activa) {
@@ -1298,15 +1308,15 @@
             const price = s.precio !== undefined ? s.precio : s.price;
             const dur = s.duracion || s.dur || '60 min';
             return `
-            <div class="service-card" id="svc-${s.id}" onclick="pickService('${s.id}')">
+            <div class="service-card" id="svc-${escapeHtml(s.id)}" onclick="pickService('${escapeHtml(s.id)}')">
                 <div class="svc-check">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                 </div>
-                <div class="svc-name">${name}</div>
-                <div class="svc-desc">${desc}</div>
+                <div class="svc-name">${escapeHtml(name)}</div>
+                <div class="svc-desc">${escapeHtml(desc)}</div>
                 <div class="svc-footer">
-                    <span class="svc-price">$${price}</span>
-                    <span class="svc-dur">${dur}</span>
+                    <span class="svc-price">$${escapeHtml(price)}</span>
+                    <span class="svc-dur">${escapeHtml(dur)}</span>
                 </div>
             </div>
             `;
@@ -1324,7 +1334,7 @@
     function renderBarbers() {
         const grid = document.getElementById('barbersGrid');
         let html = `
-            <div class="barber-card selected" id="barb-cualquiera" onclick="pickBarber('cualquiera', 'Cualquiera disponible')">
+            <div class="barber-card selected" id="barb-cualquiera" onclick="pickBarber('cualquiera')">
                 <div class="svc-check">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                 </div>
@@ -1338,18 +1348,17 @@
             const parts = (b.nombre || 'BB').trim().split(' ').filter(Boolean);
             const initials = parts.length === 1 ? parts[0].slice(0,2).toUpperCase() : (parts[0][0] + parts[1][0]).toUpperCase();
             const avatarHtml = b.foto
-                ? `<img src="${b.foto}" alt="${b.nombre}" class="barber-avatar" />`
-                : `<div class="barber-avatar">${initials}</div>`;
-            const safeName = (b.nombre || '').replace(/'/g, "\\'");
+                ? `<img src="${escapeHtml(b.foto)}" alt="${escapeHtml(b.nombre)}" class="barber-avatar" />`
+                : `<div class="barber-avatar">${escapeHtml(initials)}</div>`;
 
             html += `
-                <div class="barber-card" id="barb-${b.id}" onclick="pickBarber('${b.id}', '${safeName}')">
+                <div class="barber-card" id="barb-${escapeHtml(b.id)}" onclick="pickBarber('${escapeHtml(b.id)}')">
                     <div class="svc-check">
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                     </div>
                     ${avatarHtml}
-                    <div class="barber-name">${b.nombre}</div>
-                    <div class="barber-esp">${b.especialidad || 'Barbero'}</div>
+                    <div class="barber-name">${escapeHtml(b.nombre)}</div>
+                    <div class="barber-esp">${escapeHtml(b.especialidad || 'Barbero')}</div>
                 </div>
             `;
         });
@@ -1357,8 +1366,11 @@
         grid.innerHTML = html;
     }
 
-    function pickBarber(id, nombre) {
-        selBarber = { id, nombre };
+    function pickBarber(id) {
+        const barbero = BARBERS.find(b => String(b.id) === String(id));
+        selBarber = barbero
+            ? { id: barbero.id, nombre: barbero.nombre }
+            : { id: 'cualquiera', nombre: 'Cualquiera disponible' };
         document.querySelectorAll('.barber-card').forEach(c => c.classList.remove('selected'));
         const card = document.getElementById(`barb-${id}`);
         if (card) card.classList.add('selected');
@@ -1440,7 +1452,7 @@
 
         slotsCard.style.display = 'block';
         slotsCard.scrollIntoView({ behavior:'smooth', block:'nearest' });
-        dateLabel.innerHTML  = `Horarios con <span>${selBarber.nombre}</span> para el <span>${formatLabel(iso)}</span>`;
+        dateLabel.innerHTML  = `Horarios con <span>${escapeHtml(selBarber.nombre)}</span> para el <span>${formatLabel(iso)}</span>`;
         container.innerHTML  = `<div class="slots-loading"><div class="spinner"></div>Consultando...</div>`;
 
         try {
@@ -1448,7 +1460,7 @@
             const data = await res.json();
 
             if (data.bloqueado) {
-                container.innerHTML = `<div class="status-msg">📵 Día no disponible<br><strong>${data.motivo || ''}</strong></div>`;
+                container.innerHTML = `<div class="status-msg">📵 Día no disponible<br><strong>${escapeHtml(data.motivo || '')}</strong></div>`;
                 return;
             }
             renderSlots(data.horasOcupadas || [], iso);
@@ -1547,14 +1559,14 @@
         const svcName  = selService.nombre || selService.name;
         const svcPrice = selService.precio !== undefined ? selService.precio : selService.price;
 
+        // El precio lo calcula el servidor a partir de servicio_id
         const payload = {
-            cliente:    cliente,
-            telefono:   tel,
-            servicio:   svcName,
-            precio:     svcPrice,
-            fecha:      selDate,
-            hora:       selTime,
-            barbero_id: selBarber.id
+            cliente:     cliente,
+            telefono:    tel,
+            servicio_id: selService.id,
+            fecha:       selDate,
+            hora:        selTime,
+            barbero_id:  selBarber.id
         };
 
         try {
@@ -1574,6 +1586,8 @@
                 const local = {
                     id: data.id,
                     ...payload,
+                    servicio: svcName,
+                    precio: svcPrice,
                     barbero_nombre: data.barbero_nombre || selBarber.nombre,
                     token_cancelacion: data.token_cancelacion || '',
                     fechaTexto: formatLabel(selDate)
@@ -1616,22 +1630,22 @@
                             <span class="ticket-status-dot"></span>
                             Turno activo
                         </div>
-                        <span class="ticket-num">#${c.id || '—'}</span>
+                        <span class="ticket-num">#${escapeHtml(c.id || '—')}</span>
                     </div>
-                    <div class="ticket-service">${c.servicio}</div>
+                    <div class="ticket-service">${escapeHtml(c.servicio)}</div>
                     <div class="ticket-info">
-                        Para <strong>${c.cliente}</strong> &middot; Barbero: <strong>${c.barbero_nombre || 'Asignado'}</strong><br>
-                        ${c.fechaTexto} &middot; <strong>${c.hora}</strong>
+                        Para <strong>${escapeHtml(c.cliente)}</strong> &middot; Barbero: <strong>${escapeHtml(c.barbero_nombre || 'Asignado')}</strong><br>
+                        ${escapeHtml(c.fechaTexto)} &middot; <strong>${escapeHtml(c.hora)}</strong>
                     </div>
                     <hr class="ticket-rule">
                     <div class="ticket-foot">
-                        <span class="ticket-price">$${c.precio} MXN</span>
+                        <span class="ticket-price">$${escapeHtml(c.precio)} MXN</span>
                         <div class="ticket-actions">
-                            <a href="${MAPS_URL}" target="_blank" rel="noopener" class="btn-maps-ticket">
+                            <a href="${escapeHtml(MAPS_URL)}" target="_blank" rel="noopener" class="btn-maps-ticket">
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
                                 Cómo llegar
                             </a>
-                            <button class="btn-cancel-ticket" onclick="cancelarCita(${c.id}, '${c.token_cancelacion || ''}')">Cancelar turno</button>
+                            <button class="btn-cancel-ticket" onclick="cancelarCita()">Cancelar turno</button>
                         </div>
                     </div>
                 </div>
@@ -1641,10 +1655,15 @@
         }
     }
 
-    async function cancelarCita(id, tokenCancelacion) {
+    async function cancelarCita() {
         if (!confirm('¿Deseas cancelar tu turno agendado?')) return;
+        let id, tokenCancelacion;
         try {
-            const res = await fetch(`${API_URL}/api/citas/${id}?token=${encodeURIComponent(tokenCancelacion || '')}`, {
+            ({ id, token_cancelacion: tokenCancelacion } = JSON.parse(localStorage.getItem('miCitaBarberia') || '{}'));
+        } catch {}
+        if (!id) return;
+        try {
+            const res = await fetch(`${API_URL}/api/citas/${encodeURIComponent(id)}?token=${encodeURIComponent(tokenCancelacion || '')}`, {
                 method:'DELETE'
             });
             if (res.ok) {

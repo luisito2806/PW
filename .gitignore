@@ -1,2 +1,13 @@
 node_modules/
 .DS_Store
+
+# Datos reales de clientes: nunca deben subirse al repositorio
+*.db
+*.db-journal
+*.sqlite
+
+# Sesión de WhatsApp (quien tenga esta carpeta controla el número)
+wa_auth_info/
+
+# Variables de entorno (contraseñas)
+.env
