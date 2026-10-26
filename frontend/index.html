@@ -10,30 +10,34 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg:           #f5f5f8;
-            --surface:      #ffffff;
-            --surface-2:    #f0f0f5;
-            --border:       #e2e2ea;
-            --border-mid:   #c8c8d8;
-            --ink:          #0c0c14;
-            --ink-2:        #38384e;
-            --ink-3:        #8484a0;
-            --accent:       #00c285;
-            --accent-hover: #00a872;
-            --accent-dim:   rgba(0,194,133,0.10);
-            --accent-glow:  rgba(0,194,133,0.22);
-            --danger:       #e53e3e;
-            --danger-dim:   rgba(229,62,62,0.08);
+            /* Paleta "Latón": crema, carbón y acento latón (el acento lo ajusta tema.js) */
+            --bg:             #F7F4EE;
+            --surface:        #FFFDF9;
+            --surface-2:      #F0EBE1;
+            --border:         #E2D9C8;
+            --border-mid:     #CFC4AF;
+            --ink:            #17140F;
+            --ink-2:          #4A4236;
+            --ink-3:          #6F6553;
+            --accent:         #B8893A;
+            --on-accent:      #17140F;
+            --accent-text:    #7D5D27;
+            --accent-on-dark: #B8893A;
+            --accent-hover:   color-mix(in srgb, var(--accent) 85%, #000);
+            --accent-dim:     color-mix(in srgb, var(--accent) 12%, transparent);
+            --accent-glow:    color-mix(in srgb, var(--accent) 24%, transparent);
+            --danger:         #B42318;
+            --danger-dim:     color-mix(in srgb, var(--danger) 8%, transparent);
             --radius-xs:    8px;
             --radius-sm:    12px;
             --radius-md:    16px;
             --radius-lg:    22px;
             --radius-xl:    30px;
             --radius-full:  999px;
-            --shadow-xs:    0 1px 2px rgba(0,0,0,0.05);
-            --shadow-sm:    0 2px 10px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-            --shadow-md:    0 8px 28px rgba(0,0,0,0.09), 0 2px 6px rgba(0,0,0,0.04);
-            --shadow-lg:    0 24px 64px rgba(0,0,0,0.13), 0 8px 20px rgba(0,0,0,0.06);
+            --shadow-xs:    0 1px 2px rgba(23,20,15,0.05);
+            --shadow-sm:    0 2px 10px rgba(23,20,15,0.06), 0 1px 2px rgba(23,20,15,0.04);
+            --shadow-md:    0 8px 28px rgba(23,20,15,0.09), 0 2px 6px rgba(23,20,15,0.04);
+            --shadow-lg:    0 24px 64px rgba(23,20,15,0.13), 0 8px 20px rgba(23,20,15,0.06);
             --tx:           0.18s cubic-bezier(0.4,0,0.2,1);
         }
 
@@ -70,12 +74,23 @@
             text-decoration:none;
         }
 
-        .logo-dots { display:flex; align-items:center; }
-        .logo-dot  { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
-        .logo-dot + .logo-dot { margin-left:-3px; }
-        .dot-g { background:#00c285; }
-        .dot-v { background:#a78bfa; }
-        .dot-b { background:#60a5fa; }
+        .logo-marca { display:flex; align-items:center; }
+        .marca-monograma, .marca-logo {
+            width:32px;
+            height:32px;
+            border-radius:9px;
+            flex-shrink:0;
+        }
+        .marca-monograma {
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            background:var(--accent);
+            color:var(--on-accent);
+            font-size:16px;
+            font-weight:800;
+        }
+        .marca-logo { object-fit:cover; border:1px solid rgba(255,255,255,0.2); }
 
         .logo-name {
             font-size:17px;
@@ -107,17 +122,17 @@
         }
 
         .btn-maps-header:hover {
-            background:rgba(0,194,133,0.16);
-            border-color:rgba(0,194,133,0.4);
-            color:var(--accent);
+            background:color-mix(in srgb, var(--accent) 16%, transparent);
+            border-color:color-mix(in srgb, var(--accent) 40%, transparent);
+            color:var(--accent-on-dark);
         }
 
         .header-pill {
             font-size:11px;
             font-weight:700;
-            color:var(--accent);
-            background:rgba(0,194,133,0.12);
-            border:1px solid rgba(0,194,133,0.25);
+            color:var(--accent-on-dark);
+            background:color-mix(in srgb, var(--accent) 12%, transparent);
+            border:1px solid color-mix(in srgb, var(--accent) 25%, transparent);
             padding:4px 12px;
             border-radius:var(--radius-full);
             letter-spacing:0.06em;
@@ -143,7 +158,7 @@
             gap:6px;
             font-size:11px;
             font-weight:700;
-            color:var(--accent);
+            color:var(--accent-text);
             letter-spacing:0.12em;
             text-transform:uppercase;
             margin-bottom:14px;
@@ -168,7 +183,7 @@
 
         .hero-title em {
             font-style:normal;
-            color:var(--accent);
+            color:var(--accent-text);
         }
 
         .hero-sub {
@@ -191,7 +206,7 @@
             content:'';
             position:absolute;
             inset:0;
-            background:radial-gradient(ellipse at top right, rgba(0,194,133,0.12) 0%, transparent 65%);
+            background:radial-gradient(ellipse at top right, color-mix(in srgb, var(--accent) 12%, transparent) 0%, transparent 65%);
             pointer-events:none;
         }
 
@@ -206,9 +221,9 @@
             display:flex;
             align-items:center;
             gap:6px;
-            background:rgba(0,194,133,0.14);
-            border:1px solid rgba(0,194,133,0.28);
-            color:var(--accent);
+            background:color-mix(in srgb, var(--accent) 14%, transparent);
+            border:1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+            color:var(--accent-on-dark);
             font-size:11px;
             font-weight:700;
             letter-spacing:0.07em;
@@ -269,7 +284,7 @@
         .ticket-price {
             font-size:22px;
             font-weight:800;
-            color:var(--accent);
+            color:var(--accent-on-dark);
             letter-spacing:-0.5px;
         }
 
@@ -284,9 +299,9 @@
             display:inline-flex;
             align-items:center;
             gap:5px;
-            background:rgba(0,194,133,0.12);
-            border:1px solid rgba(0,194,133,0.30);
-            color:var(--accent);
+            background:color-mix(in srgb, var(--accent) 12%, transparent);
+            border:1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+            color:var(--accent-on-dark);
             font-family:inherit;
             font-size:13px;
             font-weight:600;
@@ -297,14 +312,14 @@
         }
 
         .btn-maps-ticket:hover {
-            background:rgba(0,194,133,0.22);
-            border-color:rgba(0,194,133,0.55);
+            background:color-mix(in srgb, var(--accent) 22%, transparent);
+            border-color:color-mix(in srgb, var(--accent) 55%, transparent);
         }
 
         .btn-cancel-ticket {
-            background:rgba(229,62,62,0.1);
-            border:1px solid rgba(229,62,62,0.22);
-            color:#f87171;
+            background:color-mix(in srgb, #E5574B 10%, transparent);
+            border:1px solid color-mix(in srgb, #E5574B 22%, transparent);
+            color:#F08A80;
             font-family:inherit;
             font-size:13px;
             font-weight:600;
@@ -315,8 +330,8 @@
         }
 
         .btn-cancel-ticket:hover {
-            background:rgba(229,62,62,0.18);
-            border-color:rgba(229,62,62,0.45);
+            background:color-mix(in srgb, #E5574B 18%, transparent);
+            border-color:color-mix(in srgb, #E5574B 45%, transparent);
         }
 
         /* ── STEPPER ── */
@@ -351,7 +366,7 @@
         .step-circle.active {
             background:var(--accent);
             border-color:var(--accent);
-            color:#fff;
+            color:var(--on-accent);
             box-shadow:0 0 0 4px var(--accent-glow);
         }
 
@@ -369,7 +384,7 @@
             transition:color var(--tx);
         }
 
-        .step-item.active .step-label { color:var(--accent); }
+        .step-item.active .step-label { color:var(--accent-text); }
         .step-item.done  .step-label { color:var(--ink-2); }
 
         .step-line {
@@ -452,6 +467,7 @@
             width:20px;
             height:20px;
             background:var(--accent);
+            color:var(--on-accent);
             border-radius:50%;
             display:none;
             align-items:center;
@@ -476,7 +492,7 @@
         .svc-dur {
             font-size:11px;
             color:var(--ink-3);
-            background:rgba(0,0,0,0.06);
+            background:rgba(23,20,15,0.06);
             padding:3px 8px;
             border-radius:var(--radius-full);
             font-weight:600;
@@ -484,7 +500,7 @@
 
         .service-card.selected .svc-dur {
             background:var(--accent-dim);
-            color:var(--accent-hover);
+            color:var(--accent-text);
         }
 
         /* ── BARBERS GRID (MULTI-BARBERO CON FOTO) ── */
@@ -579,7 +595,7 @@
         .btn-primary:hover:not(:disabled) {
             background:var(--ink-2);
             transform:translateY(-1px);
-            box-shadow:0 8px 28px rgba(12,12,20,0.22);
+            box-shadow:0 8px 28px rgba(23,20,15,0.22);
         }
 
         .btn-primary:disabled { opacity:0.3; cursor:not-allowed; transform:none; box-shadow:none; }
@@ -672,7 +688,7 @@
         }
 
         .cal-day.cal-today:not(.cal-sel) {
-            color:var(--accent);
+            color:var(--accent-text);
             font-weight:700;
             background:var(--accent-dim);
         }
@@ -701,7 +717,7 @@
             margin-bottom:12px;
         }
 
-        .slots-date span { color:var(--accent); }
+        .slots-date span { color:var(--accent-text); }
 
         .slots-grid {
             display:grid;
@@ -726,13 +742,13 @@
         .slot:hover:not(.slot-off) {
             border-color:var(--accent);
             background:var(--accent-dim);
-            color:var(--accent-hover);
+            color:var(--accent-text);
         }
 
         .slot.slot-sel {
             background:var(--accent);
             border-color:var(--accent);
-            color:#fff;
+            color:var(--on-accent);
             box-shadow:0 4px 14px var(--accent-glow);
         }
 
@@ -778,7 +794,7 @@
             display:none;
             position:fixed;
             inset:0;
-            background:rgba(12,12,20,0.55);
+            background:rgba(23,20,15,0.55);
             z-index:500;
             backdrop-filter:blur(6px);
             -webkit-backdrop-filter:blur(6px);
@@ -855,7 +871,7 @@
         }
 
         .sum-price .sum-value {
-            color:var(--accent);
+            color:var(--accent-on-dark);
             font-size:20px;
             font-weight:800;
         }
@@ -923,7 +939,7 @@
             flex:1;
             padding:14px;
             background:var(--accent);
-            color:#fff;
+            color:var(--on-accent);
             border:none;
             border-radius:var(--radius-full);
             font-family:inherit;
@@ -962,7 +978,7 @@
         }
 
         .toast.show           { transform:translateX(-50%) translateY(0); }
-        .toast.toast-success  { background:var(--accent-hover); }
+        .toast.toast-success  { background:var(--accent); color:var(--on-accent); }
         .toast.toast-error    { background:var(--danger); }
 
         /* ── RESPONSIVE ── */
@@ -982,11 +998,7 @@
 <!-- ── HEADER ── -->
 <header class="site-header">
     <div class="logo">
-        <div class="logo-dots" id="clientLogoDots">
-            <span class="logo-dot dot-g"></span>
-            <span class="logo-dot dot-v"></span>
-            <span class="logo-dot dot-b"></span>
-        </div>
+        <div class="logo-marca" id="clientLogoMarca"><span class="marca-monograma">D</span></div>
         <span class="logo-name" id="clientBrandName">Doo Barber</span>
     </div>
     <div class="header-right">
@@ -1118,6 +1130,7 @@
 <!-- ── TOAST ── -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+<script src="tema.js"></script>
 <script>
     const API_URL = window.location.origin;
 
@@ -1219,18 +1232,13 @@
             if (res.ok) {
                 const data = await res.json();
 
-                // 1. Actualizar Nombre del Negocio
+                // 1. Identidad del negocio: nombre, logo y color (marca blanca)
                 if (data.nombre_negocio) {
                     document.getElementById('clientBrandName').textContent = data.nombre_negocio;
                     document.title = `${data.nombre_negocio} — Agenda tu Cita`;
                 }
-
-                // 2. Actualizar Logo del Negocio
-                if (data.logo_url) {
-                    document.getElementById('clientLogoDots').innerHTML = `
-                        <img src="${escapeHtml(data.logo_url)}" alt="Logo" style="width:32px;height:32px;border-radius:8px;object-fit:cover;border:1px solid rgba(255,255,255,0.2);" />
-                    `;
-                }
+                pintarMarca(document.getElementById('clientLogoMarca'), data.nombre_negocio, data.logo_url);
+                aplicarColorPrimario(data.color_primario);
 
                 // 3. Servicios, Barberos, Horarios y Ubicación Maps
                 SERVICES = data.servicios || [];
@@ -1303,7 +1311,7 @@
             return `
             <div class="service-card" id="svc-${escapeHtml(s.id)}" onclick="pickService('${escapeHtml(s.id)}')">
                 <div class="svc-check">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                 </div>
                 <div class="svc-name">${escapeHtml(name)}</div>
                 <div class="svc-desc">${escapeHtml(desc)}</div>
@@ -1329,7 +1337,7 @@
         let html = `
             <div class="barber-card selected" id="barb-cualquiera" onclick="pickBarber('cualquiera')">
                 <div class="svc-check">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                 </div>
                 <div class="barber-avatar" style="background:var(--accent);">💈</div>
                 <div class="barber-name">Cualquiera</div>
@@ -1347,7 +1355,7 @@
             html += `
                 <div class="barber-card" id="barb-${escapeHtml(b.id)}" onclick="pickBarber('${escapeHtml(b.id)}')">
                     <div class="svc-check">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                     </div>
                     ${avatarHtml}
                     <div class="barber-name">${escapeHtml(b.nombre)}</div>

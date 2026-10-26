@@ -130,6 +130,7 @@ db.serialize(() => {
         const defaults = [
             ['nombre_negocio', 'Doo Barber'],
             ['logo_url', ''],
+            ['color_primario', '#B8893A'],
             ['wa_template', '¡Hola {{cliente}}! 👋 Te recordamos tu cita en *{{negocio}}*:\n📅 Fecha: {{fecha}}\n🕐 Hora: {{hora}}\n💈 Barbero: {{barbero}}\n✂️ Servicio: {{servicio}}\n💰 Total: ${{precio}} MXN\n\nResponde con un *OK* o un 👍 para confirmar de recibido. ¡Te esperamos! 🙌'],
             ['hora_apertura', '10'],
             ['hora_cierre', '19'],
@@ -462,6 +463,7 @@ function normalizarUrlMaps(valor) {
 const CONFIG_EDITABLE = {
     nombre_negocio: v => textoValido(v, 60),
     logo_url:       v => imagenValida(v),
+    color_primario: v => typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v),
     wa_template:    v => textoValido(v, 1000),
     horario_semanal: v => {
         try { return typeof v === 'string' && v.length <= 2000 && horarioSemanalValido(JSON.parse(v)); }
@@ -627,6 +629,7 @@ app.get('/api/catalogo', async (req, res) => {
     res.json({
         nombre_negocio: conf.nombre_negocio || 'Doo Barber',
         logo_url: conf.logo_url || '',
+        color_primario: conf.color_primario || '#B8893A',
         servicios,
         barberos,
         horarios: horariosDeLaSemana(conf),
@@ -634,6 +637,16 @@ app.get('/api/catalogo', async (req, res) => {
         intervalo_min: conf.intervalo,
         dias_max_reserva: DIAS_MAX_RESERVA,
         maps_url: normalizarUrlMaps(conf.maps_url)
+    });
+});
+
+// Solo la identidad del negocio, para pantallas que no necesitan el catálogo (login)
+app.get('/api/marca', async (req, res) => {
+    const conf = await obtenerConfig();
+    res.json({
+        nombre_negocio: conf.nombre_negocio || 'Doo Barber',
+        logo_url: conf.logo_url || '',
+        color_primario: conf.color_primario || '#B8893A'
     });
 });
 
