@@ -1,3 +1,6 @@
+// Las fechas "hoy" y las horas ya pasadas se calculan con la hora local de la barbería
+process.env.TZ = process.env.TZ || 'America/Mexico_City';
+
 const express = require('express');
 const cors = require('cors');
 const sqlite3 = require('sqlite3').verbose();
@@ -9,6 +12,15 @@ const pino = require('pino');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Rutas absolutas: funcionan igual sin importar desde qué carpeta se ejecute `node`
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'barberia.db');
+const WA_AUTH_DIR = path.join(__dirname, 'wa_auth_info');
+
+// Evita que un error inesperado (por ejemplo de la conexión de WhatsApp) tumbe el servidor
+process.on('unhandledRejection', (err) => {
+    console.error('Error no controlado:', err);
+});
 
 // El frontend se sirve desde este mismo servidor, así que CORS solo se habilita
 // si se define CORS_ORIGIN (ej. CORS_ORIGIN=https://mi-dominio.com)
@@ -28,7 +40,7 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '../frontend')));
 
-const db = new sqlite3.Database('./barberia.db', (err) => {
+const db = new sqlite3.Database(DB_PATH, (err) => {
     if (err) {
         console.error('Error BD:', err.message);
     } else {
@@ -56,6 +68,7 @@ db.serialize(() => {
     db.run(`ALTER TABLE citas ADD COLUMN barbero_id INTEGER DEFAULT 1`, () => {});
     db.run(`ALTER TABLE citas ADD COLUMN barbero_nombre TEXT DEFAULT 'General'`, () => {});
     db.run(`ALTER TABLE citas ADD COLUMN token_cancelacion TEXT`, () => {});
+    db.run(`ALTER TABLE citas ADD COLUMN duracion_min INTEGER DEFAULT 60`, () => {});
 
     // 2. Días completos bloqueados
     db.run(`CREATE TABLE IF NOT EXISTS dias_bloqueados (
@@ -121,11 +134,23 @@ db.serialize(() => {
             ['hora_apertura', '10'],
             ['hora_cierre', '19'],
             ['maps_url', 'https://maps.google.com'],
-            ['max_faltas', '2']
+            ['max_faltas', '2'],
+            ['intervalo_min', '60']
         ];
         const stmt = db.prepare(`INSERT OR IGNORE INTO configuracion (clave, valor) VALUES (?, ?)`);
         defaults.forEach(([k, v]) => stmt.run(k, v));
-        stmt.finalize();
+        stmt.finalize(() => {
+            // Migración: el horario único (hora_apertura / hora_cierre) pasa a ser un horario semanal
+            db.all(`SELECT clave, valor FROM configuracion WHERE clave IN ('hora_apertura', 'hora_cierre', 'horario_semanal')`, [], (err, rows) => {
+                if (err) return console.error('Error migrando horario:', err.message);
+                const conf = {};
+                rows.forEach(r => { conf[r.clave] = r.valor; });
+                if (!conf.horario_semanal) {
+                    const horario = horarioSemanalPorDefecto(conf.hora_apertura, conf.hora_cierre);
+                    db.run(`INSERT OR IGNORE INTO configuracion (clave, valor) VALUES ('horario_semanal', ?)`, [JSON.stringify(horario)]);
+                }
+            });
+        });
     });
 });
 
@@ -143,7 +168,7 @@ async function iniciarWhatsApp() {
             fetchLatestBaileysVersion
         } = await import('@whiskeysockets/baileys');
 
-        const { state, saveCreds } = await useMultiFileAuthState('./wa_auth_info');
+        const { state, saveCreds } = await useMultiFileAuthState(WA_AUTH_DIR);
         const { version } = await fetchLatestBaileysVersion();
 
         waSock = makeWASocket({
@@ -172,8 +197,8 @@ async function iniciarWhatsApp() {
                 if (shouldReconnect) {
                     setTimeout(iniciarWhatsApp, 4000);
                 } else {
-                    if (fs.existsSync('./wa_auth_info')) {
-                        fs.rmSync('./wa_auth_info', { recursive: true, force: true });
+                    if (fs.existsSync(WA_AUTH_DIR)) {
+                        fs.rmSync(WA_AUTH_DIR, { recursive: true, force: true });
                     }
                     setTimeout(iniciarWhatsApp, 2000);
                 }
@@ -193,41 +218,38 @@ iniciarWhatsApp();
 async function enviarWhatsAppAutomatico(cita, textoPersonalizado = null) {
     if (waStatus !== 'conectado' || !waSock) return false;
     try {
-        db.all(`SELECT * FROM configuracion`, [], async (err, rows) => {
-            const conf = {};
-            (rows || []).forEach(r => { conf[r.clave] = r.valor; });
+        const conf = await obtenerConfig();
+        const nombreNegocio = conf.nombre_negocio || 'Doo Barber';
+        let msg = textoPersonalizado || conf.wa_template || `¡Hola {{cliente}}! Tu cita en *${nombreNegocio}* es el {{fecha}} a las {{hora}}.`;
 
-            const nombreNegocio = conf.nombre_negocio || 'Doo Barber';
-            let msg = textoPersonalizado || conf.wa_template || `¡Hola {{cliente}}! Tu cita en *${nombreNegocio}* es el {{fecha}} a las {{hora}}.`;
+        const [y, m, d] = (cita.fecha || '').split('-');
+        const fechaCorta = y ? `${d}-${m}-${y.slice(-2)}` : cita.fecha;
 
-            const [y, m, d] = (cita.fecha || '').split('-');
-            const fechaCorta = y ? `${d}-${m}-${y.slice(-2)}` : cita.fecha;
+        msg = msg.replace(/\{\{negocio\}\}/g, nombreNegocio)
+                 .replace(/\{\{cliente\}\}/g, cita.cliente || '')
+                 .replace(/\{\{fecha\}\}/g, fechaCorta)
+                 .replace(/\{\{hora\}\}/g, cita.hora || '')
+                 .replace(/\{\{servicio\}\}/g, cita.servicio || '')
+                 .replace(/\{\{precio\}\}/g, cita.precio || '')
+                 .replace(/\{\{barbero\}\}/g, cita.barbero_nombre || 'General');
 
-            msg = msg.replace(/\{\{negocio\}\}/g, nombreNegocio)
-                     .replace(/\{\{cliente\}\}/g, cita.cliente || '')
-                     .replace(/\{\{fecha\}\}/g, fechaCorta)
-                     .replace(/\{\{hora\}\}/g, cita.hora || '')
-                     .replace(/\{\{servicio\}\}/g, cita.servicio || '')
-                     .replace(/\{\{precio\}\}/g, cita.precio || '')
-                     .replace(/\{\{barbero\}\}/g, cita.barbero_nombre || 'General');
+        // Se consultan ambos formatos de número de México y se usa el que exista en WhatsApp
+        const cleanPhone = (cita.telefono || '').replace(/\D/g, '');
+        const resultados = await waSock.onWhatsApp(`52${cleanPhone}`, `521${cleanPhone}`);
+        const result = (resultados || []).find(r => r.exists);
+        if (!result) return false;
+        const jid = result.jid;
 
-            const cleanPhone = (cita.telefono || '').replace(/\D/g, '');
-            const [result] = await waSock.onWhatsApp(`521${cleanPhone}`, `52${cleanPhone}`);
+        // Simulación de escritura humana (Anti-Baneo)
+        const delayInicial = Math.floor(Math.random() * 2000) + 2000;
+        await new Promise(r => setTimeout(r, delayInicial));
 
-            if (!result || !result.exists) return;
-            const jid = result.jid;
+        await waSock.sendPresenceUpdate('composing', jid);
+        const tiempoEscritura = Math.floor(Math.random() * 2500) + 1500;
+        await new Promise(r => setTimeout(r, tiempoEscritura));
+        await waSock.sendPresenceUpdate('paused', jid);
 
-            // Simulación de escritura humana (Anti-Baneo)
-            const delayInicial = Math.floor(Math.random() * 2000) + 2000;
-            await new Promise(r => setTimeout(r, delayInicial));
-
-            await waSock.sendPresenceUpdate('composing', jid);
-            const tiempoEscritura = Math.floor(Math.random() * 2500) + 1500;
-            await new Promise(r => setTimeout(r, tiempoEscritura));
-            await waSock.sendPresenceUpdate('paused', jid);
-
-            await waSock.sendMessage(jid, { text: msg });
-        });
+        await waSock.sendMessage(jid, { text: msg });
         return true;
     } catch (e) {
         console.error('Error enviando WA:', e.message);
@@ -235,16 +257,176 @@ async function enviarWhatsAppAutomatico(cita, textoPersonalizado = null) {
     }
 }
 
-// ─── GENERADOR DE HORARIOS (1 HORA POR BLOQUE) ───────────────────────
-function generarHorarios(inicio = 10, fin = 19) {
-    const lista = [];
-    for (let h = parseInt(inicio, 10); h <= parseInt(fin, 10); h++) {
-        const ampm = h >= 12 ? 'PM' : 'AM';
-        let h12 = h % 12;
-        if (h12 === 0) h12 = 12;
-        lista.push(`${String(h12).padStart(2, '0')}:00 ${ampm}`);
+// ─── AGENDA: HORARIO SEMANAL, DURACIONES Y DISPONIBILIDAD ────────────
+const DIAS_MAX_RESERVA = 30;
+const INTERVALOS_VALIDOS = [15, 30, 60];
+const DURACION_MIN = 5;
+const DURACION_MAX = 480;
+
+const dbGet = (sql, params = []) => new Promise((ok, fallo) => db.get(sql, params, (err, row) => err ? fallo(err) : ok(row)));
+const dbAll = (sql, params = []) => new Promise((ok, fallo) => db.all(sql, params, (err, rows) => err ? fallo(err) : ok(rows || [])));
+const dbRun = (sql, params = []) => new Promise((ok, fallo) => db.run(sql, params, function(err) { err ? fallo(err) : ok(this); }));
+
+const pad2 = n => String(n).padStart(2, '0');
+
+// "01:30 PM" → 810 (minutos desde medianoche); NaN si el formato no es válido
+function horaAMinutos(hora) {
+    const m = /^(\d{1,2}):(\d{2}) (AM|PM)$/.exec(hora || '');
+    if (!m || Number(m[1]) < 1 || Number(m[1]) > 12 || Number(m[2]) > 59) return NaN;
+    let h = Number(m[1]) % 12;
+    if (m[3] === 'PM') h += 12;
+    return h * 60 + Number(m[2]);
+}
+
+// 810 → "01:30 PM"
+function minutosAHora(min) {
+    const h24 = Math.floor(min / 60);
+    let h12 = h24 % 12;
+    if (h12 === 0) h12 = 12;
+    return `${pad2(h12)}:${pad2(min % 60)} ${h24 >= 12 ? 'PM' : 'AM'}`;
+}
+
+// "20:30" → 1230
+function hhmmAMinutos(valor) {
+    const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(valor || '');
+    return m ? Number(m[1]) * 60 + Number(m[2]) : NaN;
+}
+
+// "50 min" → 50. Si no se puede leer, se asume 60 minutos
+function duracionAMinutos(texto) {
+    const n = parseInt(String(texto || ''), 10);
+    return Number.isFinite(n) && n >= DURACION_MIN && n <= DURACION_MAX ? n : 60;
+}
+
+function fechaLocalISO(d = new Date()) {
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function sumarDias(fechaISO, dias) {
+    const [y, m, d] = fechaISO.split('-').map(Number);
+    return fechaLocalISO(new Date(y, m - 1, d + dias));
+}
+
+function minutosAhora() {
+    const d = new Date();
+    return d.getHours() * 60 + d.getMinutes();
+}
+
+// Horario semanal: arreglo de 7 días (0 = domingo). Cada día es null (cerrado)
+// o { abre: 'HH:MM', cierra: 'HH:MM' }. El antiguo hora_cierre era el "último turno",
+// por eso el local cierra una hora después.
+function horarioSemanalPorDefecto(apertura = 10, cierre = 19) {
+    const abre = Math.min(Math.max(parseInt(apertura, 10) || 10, 0), 22);
+    const cierra = Math.min(Math.max((parseInt(cierre, 10) || 19) + 1, abre + 1), 23);
+    return Array.from({ length: 7 }, () => ({ abre: `${pad2(abre)}:00`, cierra: `${pad2(cierra)}:00` }));
+}
+
+function horarioSemanalValido(horario) {
+    return Array.isArray(horario) && horario.length === 7 && horario.every(dia =>
+        dia === null || (
+            typeof dia === 'object'
+            && Number.isFinite(hhmmAMinutos(dia.abre))
+            && Number.isFinite(hhmmAMinutos(dia.cierra))
+            && hhmmAMinutos(dia.abre) < hhmmAMinutos(dia.cierra)
+        )
+    );
+}
+
+function parsearHorarioSemanal(texto) {
+    try {
+        const horario = JSON.parse(texto);
+        if (horarioSemanalValido(horario)) return horario;
+    } catch {}
+    return horarioSemanalPorDefecto();
+}
+
+async function obtenerConfig() {
+    const rows = await dbAll(`SELECT * FROM configuracion`);
+    const conf = {};
+    rows.forEach(r => { conf[r.clave] = r.valor; });
+    conf.horario = parsearHorarioSemanal(conf.horario_semanal);
+    conf.intervalo = INTERVALOS_VALIDOS.includes(Number(conf.intervalo_min)) ? Number(conf.intervalo_min) : 60;
+    return conf;
+}
+
+function horarioDeFecha(conf, fechaISO) {
+    const [y, m, d] = fechaISO.split('-').map(Number);
+    return conf.horario[new Date(y, m - 1, d).getDay()];
+}
+
+// Minutos de inicio de cada turno: desde que abre, cada `intervalo`, mientras sea antes del cierre
+function iniciosDeTurno(horarioDia, intervalo) {
+    const inicios = [];
+    for (let t = hhmmAMinutos(horarioDia.abre); t < hhmmAMinutos(horarioDia.cierra); t += intervalo) inicios.push(t);
+    return inicios;
+}
+
+// Todas las horas posibles de la semana (para los selectores del panel)
+function horariosDeLaSemana(conf) {
+    const todos = new Set();
+    conf.horario.forEach(dia => { if (dia) iniciosDeTurno(dia, conf.intervalo).forEach(t => todos.add(t)); });
+    return [...todos].sort((a, b) => a - b).map(minutosAHora);
+}
+
+const traslapa = (inicioA, finA, inicioB, finB) => inicioA < finB && inicioB < finA;
+
+// Calcula qué turnos de una fecha están libres para un servicio de `duracion` minutos.
+// Un turno está libre si el servicio termina antes del cierre, no choca con una hora
+// bloqueada y al menos un barbero (o el elegido) no tiene otra cita en ese rango.
+async function calcularDisponibilidad({ fecha, barberoId = 'cualquiera', duracion, conf, excluirCitaId = null, permitirPasado = false }) {
+    const diaBloqueado = await dbGet(`SELECT motivo FROM dias_bloqueados WHERE fecha = ?`, [fecha]);
+    if (diaBloqueado) return { cerrado: true, motivo: diaBloqueado.motivo, horarios: [] };
+
+    const horarioDia = horarioDeFecha(conf, fecha);
+    if (!horarioDia) return { cerrado: true, motivo: 'Cerrado este día', horarios: [] };
+
+    let barberos = await dbAll(`SELECT id, nombre FROM barberos WHERE activo = 1 ORDER BY id ASC`);
+    if (barberoId && barberoId !== 'cualquiera') {
+        barberos = barberos.filter(b => String(b.id) === String(barberoId));
+        if (barberos.length === 0) return { error: 'El barbero seleccionado no está disponible.' };
     }
-    return lista;
+
+    const citas = (await dbAll(
+        `SELECT id, hora, barbero_id, duracion_min FROM citas WHERE fecha = ? AND estado != 'cancelada'`,
+        [fecha]
+    ))
+        .filter(c => Number(c.id) !== Number(excluirCitaId))
+        .map(c => ({ barberoId: Number(c.barbero_id), inicio: horaAMinutos(c.hora), duracion: c.duracion_min || 60 }))
+        .filter(c => Number.isFinite(c.inicio));
+
+    const bloqueadas = (await dbAll(`SELECT hora FROM horas_bloqueadas WHERE fecha = ?`, [fecha]))
+        .map(r => horaAMinutos(r.hora))
+        .filter(Number.isFinite);
+
+    const hoy = fechaLocalISO();
+    const ahora = minutosAhora();
+    const cierre = hhmmAMinutos(horarioDia.cierra);
+
+    const horarios = iniciosDeTurno(horarioDia, conf.intervalo).map(inicio => {
+        const fin = inicio + duracion;
+        const yaPaso = fecha < hoy || (fecha === hoy && inicio <= ahora);
+        let libres = [];
+
+        if (fin <= cierre
+            && (permitirPasado || !yaPaso)
+            && !bloqueadas.some(b => traslapa(inicio, fin, b, b + conf.intervalo))) {
+            libres = barberos.filter(b => !citas.some(c =>
+                c.barberoId === Number(b.id) && traslapa(inicio, fin, c.inicio, c.inicio + c.duracion)
+            ));
+        }
+        return { hora: minutosAHora(inicio), disponible: libres.length > 0, libres };
+    });
+
+    return { cerrado: false, horarios };
+}
+
+// Las reservas y los cambios de horario se procesan de uno en uno, para que dos
+// personas reservando al mismo tiempo no puedan quedarse con el mismo turno.
+let colaReservas = Promise.resolve();
+function enFilaDeReservas(tarea) {
+    const resultado = colaReservas.then(tarea);
+    colaReservas = resultado.catch(() => {});
+    return resultado;
 }
 
 // ─── VALIDACIONES ────────────────────────────────────────────────────
@@ -264,18 +446,16 @@ function imagenValida(valor) {
         && /^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/.test(valor);
 }
 
-function horaValida(valor) {
-    const n = Number(valor);
-    return Number.isInteger(n) && n >= 0 && n <= 23;
-}
-
 // Claves que el panel puede modificar y cómo se valida cada una
 const CONFIG_EDITABLE = {
     nombre_negocio: v => textoValido(v, 60),
     logo_url:       v => imagenValida(v),
     wa_template:    v => textoValido(v, 1000),
-    hora_apertura:  horaValida,
-    hora_cierre:    horaValida,
+    horario_semanal: v => {
+        try { return typeof v === 'string' && v.length <= 2000 && horarioSemanalValido(JSON.parse(v)); }
+        catch { return false; }
+    },
+    intervalo_min:  v => INTERVALOS_VALIDOS.includes(Number(v)),
     maps_url:       v => v === '' || (typeof v === 'string' && v.length <= 1000 && /^https?:\/\//i.test(v)),
     max_faltas:     v => Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 50
 };
@@ -415,8 +595,8 @@ app.post('/api/whatsapp/logout', verificarAdmin, async (req, res) => {
     try {
         if (waSock) await waSock.logout();
     } catch {}
-    if (fs.existsSync('./wa_auth_info')) {
-        fs.rmSync('./wa_auth_info', { recursive: true, force: true });
+    if (fs.existsSync(WA_AUTH_DIR)) {
+        fs.rmSync(WA_AUTH_DIR, { recursive: true, force: true });
     }
     waStatus = 'desconectado';
     waQrBase64 = null;
@@ -438,23 +618,22 @@ app.delete('/api/reset-citas', verificarAdmin, (req, res) => {
 });
 
 // ─── CATÁLOGO PÚBLICO (INCLUYE MARCA BLANCA: NOMBRE Y LOGO) ──────────
-app.get('/api/catalogo', (req, res) => {
-    db.all(`SELECT * FROM servicios WHERE activo = 1 ORDER BY id ASC`, [], (errS, servicios) => {
-        db.all(`SELECT * FROM barberos WHERE activo = 1 ORDER BY id ASC`, [], (errB, barberos) => {
-            db.all(`SELECT * FROM configuracion`, [], (errC, confRows) => {
-                const config = {};
-                (confRows || []).forEach(r => { config[r.clave] = r.valor; });
-                const horarios = generarHorarios(config.hora_apertura || 10, config.hora_cierre || 19);
-                res.json({
-                    nombre_negocio: config.nombre_negocio || 'Doo Barber',
-                    logo_url: config.logo_url || '',
-                    servicios: servicios || [],
-                    barberos: barberos || [],
-                    horarios,
-                    maps_url: config.maps_url || 'https://maps.google.com'
-                });
-            });
-        });
+app.get('/api/catalogo', async (req, res) => {
+    const [servicios, barberos, conf] = await Promise.all([
+        dbAll(`SELECT * FROM servicios WHERE activo = 1 ORDER BY id ASC`),
+        dbAll(`SELECT * FROM barberos WHERE activo = 1 ORDER BY id ASC`),
+        obtenerConfig()
+    ]);
+    res.json({
+        nombre_negocio: conf.nombre_negocio || 'Doo Barber',
+        logo_url: conf.logo_url || '',
+        servicios,
+        barberos,
+        horarios: horariosDeLaSemana(conf),
+        horario_semanal: conf.horario,
+        intervalo_min: conf.intervalo,
+        dias_max_reserva: DIAS_MAX_RESERVA,
+        maps_url: conf.maps_url || 'https://maps.google.com'
     });
 });
 
@@ -469,12 +648,13 @@ app.post('/api/servicios', verificarAdmin, (req, res) => {
     if (descripcion && (typeof descripcion !== 'string' || descripcion.length > 200)) {
         return res.status(400).json({ error: 'Descripción inválida (máx. 200 caracteres)' });
     }
-    if (duracion && (typeof duracion !== 'string' || duracion.length > 20)) {
-        return res.status(400).json({ error: 'Duración inválida' });
+    const duracionNum = parseInt(String(duracion ?? '60'), 10);
+    if (!Number.isFinite(duracionNum) || duracionNum < DURACION_MIN || duracionNum > DURACION_MAX) {
+        return res.status(400).json({ error: `La duración debe ser entre ${DURACION_MIN} y ${DURACION_MAX} minutos` });
     }
     db.run(
         `INSERT INTO servicios (nombre, descripcion, precio, duracion, activo) VALUES (?, ?, ?, ?, 1)`,
-        [nombre.trim(), (descripcion || '').trim(), precioNum, (duracion || '60 min').trim()],
+        [nombre.trim(), (descripcion || '').trim(), precioNum, `${duracionNum} min`],
         function(err) {
             if (err) return res.status(500).json({ error: err.message });
             res.json({ id: this.lastID, mensaje: 'Servicio agregado' });
@@ -515,14 +695,13 @@ app.delete('/api/barberos/:id', verificarAdmin, (req, res) => {
 });
 
 // ─── CONFIGURACIÓN GENERAL ───────────────────────────────────────────
-app.get('/api/config', verificarAdmin, (req, res) => {
-    db.all(`SELECT * FROM configuracion`, [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        const config = {};
-        rows.forEach(r => { config[r.clave] = r.valor; });
-        config.horarios = generarHorarios(config.hora_apertura || 10, config.hora_cierre || 19);
-        res.json(config);
-    });
+app.get('/api/config', verificarAdmin, async (req, res) => {
+    const conf = await obtenerConfig();
+    const { horario, intervalo, ...config } = conf;
+    config.horario_semanal = horario;
+    config.intervalo_min = intervalo;
+    config.horarios = horariosDeLaSemana(conf);
+    res.json(config);
 });
 
 app.put('/api/config', verificarAdmin, (req, res) => {
@@ -542,45 +721,26 @@ app.put('/api/config', verificarAdmin, (req, res) => {
 });
 
 // ─── DISPONIBILIDAD (CLIENTE) ────────────────────────────────────────
-app.get('/api/disponibilidad', (req, res) => {
-    const { fecha, barbero_id } = req.query;
-    if (!fecha) return res.status(400).json({ error: 'Fecha requerida' });
+app.get('/api/disponibilidad', async (req, res) => {
+    const { fecha, barbero_id, servicio_id } = req.query;
+    if (!REGEX_FECHA.test(fecha || '')) return res.status(400).json({ error: 'Fecha requerida' });
 
-    db.get(`SELECT motivo FROM dias_bloqueados WHERE fecha = ?`, [fecha], (err, diaBloqueado) => {
-        if (err) return res.status(500).json({ error: err.message });
-        if (diaBloqueado) {
-            return res.json({ bloqueado: true, motivo: diaBloqueado.motivo, horasOcupadas: [] });
-        }
+    const servicio = servicio_id
+        ? await dbGet(`SELECT duracion FROM servicios WHERE id = ? AND activo = 1`, [servicio_id])
+        : null;
+    const conf = await obtenerConfig();
+    const disp = await calcularDisponibilidad({
+        fecha,
+        barberoId: barbero_id || 'cualquiera',
+        duracion: duracionAMinutos(servicio?.duracion),
+        conf
+    });
 
-        db.all(`SELECT id FROM barberos WHERE activo = 1`, [], (errB, barberosActivos) => {
-            const totalBarberos = (barberosActivos && barberosActivos.length) ? barberosActivos.length : 1;
-
-            db.all(`SELECT hora, barbero_id FROM citas WHERE fecha = ? AND estado != 'cancelada'`, [fecha], (errCitas, rowsCitas) => {
-                if (errCitas) return res.status(500).json({ error: errCitas.message });
-
-                db.all(`SELECT hora FROM horas_bloqueadas WHERE fecha = ?`, [fecha], (errHoras, rowsHoras) => {
-                    if (errHoras) return res.status(500).json({ error: errHoras.message });
-
-                    const ocupadasAdmin = rowsHoras.map(r => r.hora);
-                    let ocupadasCitas = [];
-
-                    if (barbero_id && barbero_id !== 'cualquiera') {
-                        ocupadasCitas = rowsCitas
-                            .filter(r => String(r.barbero_id) === String(barbero_id))
-                            .map(r => r.hora);
-                    } else {
-                        const conteoPorHora = {};
-                        rowsCitas.forEach(r => {
-                            conteoPorHora[r.hora] = (conteoPorHora[r.hora] || 0) + 1;
-                        });
-                        ocupadasCitas = Object.keys(conteoPorHora).filter(h => conteoPorHora[h] >= totalBarberos);
-                    }
-
-                    const todas = [...new Set([...ocupadasCitas, ...ocupadasAdmin])];
-                    res.json({ bloqueado: false, horasOcupadas: todas });
-                });
-            });
-        });
+    if (disp.error) return res.status(400).json({ error: disp.error });
+    if (disp.cerrado) return res.json({ bloqueado: true, motivo: disp.motivo, horarios: [] });
+    res.json({
+        bloqueado: false,
+        horarios: disp.horarios.map(({ hora, disponible }) => ({ hora, disponible }))
     });
 });
 
@@ -602,7 +762,7 @@ app.get('/api/citas/:id/ticket-status', (req, res) => {
 // ─── AGENDAR CITA ────────────────────────────────────────────────────
 // El precio y el nombre del servicio se toman de la base de datos a partir de
 // servicio_id; nunca se confía en lo que manda el navegador.
-app.post('/api/citas', detectarAdmin, (req, res) => {
+app.post('/api/citas', detectarAdmin, async (req, res) => {
     const { telefono, servicio_id, hora, fecha, barbero_id } = req.body;
     const cliente = typeof req.body.cliente === 'string' ? req.body.cliente.trim() : '';
     const esAdmin = req.esAdmin;
@@ -610,175 +770,135 @@ app.post('/api/citas', detectarAdmin, (req, res) => {
     if (!textoValido(cliente, 80)) {
         return res.status(400).json({ error: 'Ingresa un nombre válido (máx. 80 caracteres).' });
     }
-    const regexTelefono = /^[0-9]{10}$/;
-    if (!regexTelefono.test(telefono)) {
+    if (!/^[0-9]{10}$/.test(telefono)) {
         return res.status(400).json({ error: 'El número debe ser de 10 dígitos.' });
     }
     if (!REGEX_FECHA.test(fecha || '')) {
         return res.status(400).json({ error: 'Fecha inválida.' });
     }
 
-    db.get(`SELECT nombre, precio FROM servicios WHERE id = ? AND activo = 1`, [servicio_id], (errSrv, srv) => {
-        if (errSrv) return res.status(500).json({ error: errSrv.message });
-        if (!srv) return res.status(400).json({ error: 'El servicio seleccionado no está disponible.' });
+    const srv = await dbGet(`SELECT nombre, precio, duracion FROM servicios WHERE id = ? AND activo = 1`, [servicio_id]);
+    if (!srv) return res.status(400).json({ error: 'El servicio seleccionado no está disponible.' });
 
-        db.all(`SELECT * FROM configuracion`, [], (errConf, confRows) => {
-            const conf = {};
-            (confRows || []).forEach(r => { conf[r.clave] = r.valor; });
-            const maxFaltas = Number(conf.max_faltas || 2);
+    const conf = await obtenerConfig();
 
-            if (!generarHorarios(conf.hora_apertura || 10, conf.hora_cierre || 19).includes(hora)) {
-                return res.status(400).json({ error: 'Horario inválido.' });
+    // El administrador puede registrar citas pasadas o de clientes con faltas; el cliente no
+    if (!esAdmin) {
+        const hoy = fechaLocalISO();
+        if (fecha < hoy) return res.status(400).json({ error: 'No se puede agendar en una fecha pasada.' });
+        if (fecha > sumarDias(hoy, DIAS_MAX_RESERVA)) {
+            return res.status(400).json({ error: `Solo se puede agendar con hasta ${DIAS_MAX_RESERVA} días de anticipación.` });
+        }
+
+        const maxFaltas = Number(conf.max_faltas || 2);
+        const rowFaltas = await dbGet(`SELECT COUNT(*) as faltas FROM citas WHERE telefono = ? AND estado = 'no_asistio'`, [telefono]);
+        if ((rowFaltas?.faltas || 0) >= maxFaltas) {
+            return res.status(403).json({
+                error: 'Tu número registra inasistencias previas sin aviso. Contáctanos directamente para agendar.'
+            });
+        }
+    }
+
+    const duracion = duracionAMinutos(srv.duracion);
+
+    const resultado = await enFilaDeReservas(async () => {
+        const disp = await calcularDisponibilidad({ fecha, barberoId: barbero_id, duracion, conf, permitirPasado: esAdmin });
+        if (disp.error) return { status: 400, body: { error: disp.error } };
+        if (disp.cerrado) return { status: 400, body: { error: `Día no disponible: ${disp.motivo}` } };
+
+        const turno = disp.horarios.find(h => h.hora === hora);
+        if (!turno) return { status: 400, body: { error: 'Horario inválido.' } };
+        if (!turno.disponible) {
+            return { status: 409, body: { error: 'Ese horario ya no está disponible. Elige otro, por favor.' } };
+        }
+
+        const barbero = turno.libres[0];
+        const tokenCancelacion = crypto.randomBytes(12).toString('hex');
+        const insert = await dbRun(
+            `INSERT INTO citas (cliente, telefono, servicio, precio, hora, fecha, estado, barbero_id, barbero_nombre, token_cancelacion, duracion_min)
+             VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?, ?, ?)`,
+            [cliente, telefono, srv.nombre, srv.precio, hora, fecha, barbero.id, barbero.nombre, tokenCancelacion, duracion]
+        );
+
+        return {
+            status: 200,
+            body: {
+                mensaje: 'Cita agendada',
+                id: insert.lastID,
+                barbero_nombre: barbero.nombre,
+                token_cancelacion: tokenCancelacion
+            },
+            cita: {
+                id: insert.lastID,
+                cliente,
+                telefono,
+                servicio: srv.nombre,
+                precio: srv.precio,
+                hora,
+                fecha,
+                barbero_nombre: barbero.nombre
             }
-
-            db.get(
-                `SELECT COUNT(*) as faltas FROM citas WHERE telefono = ? AND estado = 'no_asistio'`,
-                [telefono],
-                (errF, rowFaltas) => {
-                    if (!esAdmin && (rowFaltas?.faltas || 0) >= maxFaltas) {
-                        return res.status(403).json({
-                            error: 'Tu número registra inasistencias previas sin aviso. Contáctanos directamente para agendar.'
-                        });
-                    }
-
-                    db.get(`SELECT motivo FROM dias_bloqueados WHERE fecha = ?`, [fecha], (err, bloqueado) => {
-                        if (err) return res.status(500).json({ error: err.message });
-                        if (bloqueado) return res.status(400).json({ error: `Día no laboral: ${bloqueado.motivo}` });
-
-                        db.get(`SELECT id FROM horas_bloqueadas WHERE fecha = ? AND hora = ?`, [fecha, hora], (errH, hBloq) => {
-                            if (errH) return res.status(500).json({ error: errH.message });
-                            if (hBloq) return res.status(409).json({ error: 'Horario no disponible por salida o compromiso del barbero.' });
-
-                            db.all(`SELECT * FROM barberos WHERE activo = 1`, [], (errB, barberos) => {
-                                const listaBarberos = (barberos && barberos.length > 0)
-                                    ? barberos
-                                    : [{ id: 1, nombre: 'Barbero Principal' }];
-
-                                db.all(
-                                    `SELECT barbero_id FROM citas WHERE fecha = ? AND hora = ? AND estado != 'cancelada'`,
-                                    [fecha, hora],
-                                    (errC, citasEnHora) => {
-                                        if (errC) return res.status(500).json({ error: errC.message });
-                                        const ocupadosIds = (citasEnHora || []).map(c => Number(c.barbero_id));
-                                        let barberoElegido = null;
-
-                                        if (barbero_id && barbero_id !== 'cualquiera') {
-                                            if (ocupadosIds.includes(Number(barbero_id))) {
-                                                return res.status(409).json({ error: 'Este barbero ya tiene una cita en ese horario.' });
-                                            }
-                                            barberoElegido = listaBarberos.find(b => Number(b.id) === Number(barbero_id)) || listaBarberos[0];
-                                        } else {
-                                            const disponibles = listaBarberos.filter(b => !ocupadosIds.includes(Number(b.id)));
-                                            if (disponibles.length === 0) {
-                                                return res.status(409).json({ error: 'El horario seleccionado ya fue tomado.' });
-                                            }
-                                            barberoElegido = disponibles[0];
-                                        }
-
-                                        const tokenCancelacion = crypto.randomBytes(12).toString('hex');
-                                        const query = `INSERT INTO citas (cliente, telefono, servicio, precio, hora, fecha, estado, barbero_id, barbero_nombre, token_cancelacion)
-                                                       VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?, ?)`;
-
-                                        db.run(
-                                            query,
-                                            [cliente, telefono, srv.nombre, srv.precio, hora, fecha, barberoElegido.id, barberoElegido.nombre, tokenCancelacion],
-                                            function(insErr) {
-                                                if (insErr) return res.status(500).json({ error: insErr.message });
-
-                                                const citaCreada = {
-                                                    id: this.lastID,
-                                                    cliente,
-                                                    telefono,
-                                                    servicio: srv.nombre,
-                                                    precio: srv.precio,
-                                                    hora,
-                                                    fecha,
-                                                    barbero_nombre: barberoElegido.nombre
-                                                };
-
-                                                enviarWhatsAppAutomatico(citaCreada);
-
-                                                res.json({
-                                                    mensaje: 'Cita agendada',
-                                                    id: this.lastID,
-                                                    barbero_nombre: barberoElegido.nombre,
-                                                    token_cancelacion: tokenCancelacion
-                                                });
-                                            }
-                                        );
-                                    }
-                                );
-                            });
-                        });
-                    });
-                }
-            );
-        });
+        };
     });
+
+    if (resultado.cita) enviarWhatsAppAutomatico(resultado.cita);
+    res.status(resultado.status).json(resultado.body);
 });
 
 // ─── REAGENDAR / MOVER CITA EN UN CLIC (ADMIN) ───────────────────────
-app.patch('/api/citas/:id/reagendar', verificarAdmin, (req, res) => {
-    const { id } = req.params;
+app.patch('/api/citas/:id/reagendar', verificarAdmin, async (req, res) => {
+    const id = Number(req.params.id);
     const { fecha, hora, barbero_id } = req.body;
 
     if (!fecha || !hora) {
         return res.status(400).json({ error: 'Fecha y hora son requeridas para reagendar.' });
     }
-    if (!REGEX_FECHA.test(fecha) || typeof hora !== 'string' || hora.length > 10) {
+    if (!REGEX_FECHA.test(fecha) || !Number.isFinite(horaAMinutos(hora))) {
         return res.status(400).json({ error: 'Fecha u hora inválida.' });
     }
 
-    db.get(`SELECT * FROM citas WHERE id = ?`, [id], (errCita, citaActual) => {
-        if (errCita || !citaActual) return res.status(404).json({ error: 'Cita no encontrada.' });
+    const citaActual = await dbGet(`SELECT * FROM citas WHERE id = ?`, [id]);
+    if (!citaActual) return res.status(404).json({ error: 'Cita no encontrada.' });
 
-        db.get(`SELECT motivo FROM dias_bloqueados WHERE fecha = ?`, [fecha], (errDia, diaBloq) => {
-            if (diaBloq) return res.status(400).json({ error: `Ese día está bloqueado: ${diaBloq.motivo}` });
+    const conf = await obtenerConfig();
 
-            db.get(`SELECT id FROM horas_bloqueadas WHERE fecha = ? AND hora = ?`, [fecha, hora], (errHora, horaBloq) => {
-                if (horaBloq) return res.status(409).json({ error: 'Esa hora está bloqueada en la agenda.' });
-
-                const idBarberoFinal = Number(barbero_id || citaActual.barbero_id || 1);
-
-                db.get(
-                    `SELECT id FROM citas WHERE fecha = ? AND hora = ? AND barbero_id = ? AND estado != 'cancelada' AND id != ?`,
-                    [fecha, hora, idBarberoFinal, id],
-                    (errOcup, citaOcupada) => {
-                        if (citaOcupada) {
-                            return res.status(409).json({ error: 'El barbero seleccionado ya tiene otra cita en esa fecha y hora.' });
-                        }
-
-                        db.get(`SELECT nombre FROM barberos WHERE id = ?`, [idBarberoFinal], (errB, rowBarbero) => {
-                            const nombreBarberoFinal = rowBarbero ? rowBarbero.nombre : (citaActual.barbero_nombre || 'General');
-
-                            db.run(
-                                `UPDATE citas SET fecha = ?, hora = ?, barbero_id = ?, barbero_nombre = ? WHERE id = ?`,
-                                [fecha, hora, idBarberoFinal, nombreBarberoFinal, id],
-                                function(errUpd) {
-                                    if (errUpd) return res.status(500).json({ error: errUpd.message });
-
-                                    const citaActualizada = {
-                                        ...citaActual,
-                                        fecha,
-                                        hora,
-                                        barbero_id: idBarberoFinal,
-                                        barbero_nombre: nombreBarberoFinal
-                                    };
-
-                                    enviarWhatsAppAutomatico(
-                                        citaActualizada,
-                                        `¡Hola {{cliente}}! 🔄 Tu cita en *{{negocio}}* ha sido reagendada:\n📅 Nueva Fecha: {{fecha}}\n🕐 Nueva Hora: {{hora}}\n💈 Barbero: {{barbero}}\n✂️ Servicio: {{servicio}}\n\n¡Te esperamos! 🙌`
-                                    );
-
-                                    res.json({ mensaje: 'Cita reagendada correctamente' });
-                                }
-                            );
-                        });
-                    }
-                );
-            });
+    const resultado = await enFilaDeReservas(async () => {
+        const disp = await calcularDisponibilidad({
+            fecha,
+            barberoId: barbero_id || citaActual.barbero_id,
+            duracion: citaActual.duracion_min || 60,
+            conf,
+            excluirCitaId: id,
+            permitirPasado: true
         });
+        if (disp.error) return { status: 400, body: { error: disp.error } };
+        if (disp.cerrado) return { status: 400, body: { error: `Ese día no está disponible: ${disp.motivo}` } };
+
+        const turno = disp.horarios.find(h => h.hora === hora);
+        if (!turno) return { status: 400, body: { error: 'Esa hora está fuera del horario de ese día.' } };
+        if (!turno.disponible) {
+            return { status: 409, body: { error: 'El barbero ya tiene otra cita o un bloqueo en ese horario, o el servicio terminaría después del cierre.' } };
+        }
+
+        const barbero = turno.libres[0];
+        await dbRun(
+            `UPDATE citas SET fecha = ?, hora = ?, barbero_id = ?, barbero_nombre = ? WHERE id = ?`,
+            [fecha, hora, barbero.id, barbero.nombre, id]
+        );
+        return {
+            status: 200,
+            body: { mensaje: 'Cita reagendada correctamente' },
+            cita: { ...citaActual, fecha, hora, barbero_id: barbero.id, barbero_nombre: barbero.nombre }
+        };
     });
+
+    if (resultado.cita) {
+        enviarWhatsAppAutomatico(
+            resultado.cita,
+            `¡Hola {{cliente}}! 🔄 Tu cita en *{{negocio}}* ha sido reagendada:\n📅 Nueva Fecha: {{fecha}}\n🕐 Nueva Hora: {{hora}}\n💈 Barbero: {{barbero}}\n✂️ Servicio: {{servicio}}\n\n¡Te esperamos! 🙌`
+        );
+    }
+    res.status(resultado.status).json(resultado.body);
 });
 
 // ─── CANCELAR CITA ───────────────────────────────────────────────────
@@ -912,7 +1032,7 @@ app.get('/api/horas-bloqueadas', verificarAdmin, (req, res) => {
 app.post('/api/horas-bloqueadas-rango', verificarAdmin, (req, res) => {
     const { fecha, horas, motivo } = req.body;
     if (!REGEX_FECHA.test(fecha || '') || !Array.isArray(horas) || horas.length === 0 || horas.length > 24
-        || horas.some(h => typeof h !== 'string' || h.length > 10)) {
+        || horas.some(h => !Number.isFinite(horaAMinutos(h)))) {
         return res.status(400).json({ error: 'Fecha y horas requeridas' });
     }
     if (motivo && (typeof motivo !== 'string' || motivo.length > 120)) {
@@ -935,6 +1055,12 @@ app.delete('/api/horas-bloqueadas/:id', verificarAdmin, (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ mensaje: 'Horario liberado' });
     });
+});
+
+// Cualquier error no previsto en una ruta responde 500 en JSON en lugar de una página HTML
+app.use((err, req, res, next) => {
+    console.error('Error en', req.method, req.path, err);
+    res.status(500).json({ error: 'Error interno del servidor' });
 });
 
 app.listen(PORT, () => {
