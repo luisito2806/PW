@@ -2,10 +2,12 @@
   "name": "pw",
   "version": "1.0.0",
   "private": true,
-  "description": "Programa para agendar citas",
+  "description": "Sistema de citas para barberías (Cloudflare Workers + D1)",
   "scripts": {
-    "install-backend": "npm --prefix backend install",
-    "start": "npm --prefix backend start"
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrar:local": "wrangler d1 migrations apply DB --local",
+    "db:migrar": "wrangler d1 migrations apply DB --remote"
   },
   "repository": {
     "type": "git",
@@ -18,6 +20,16 @@
   },
   "homepage": "https://github.com/luisito2806/PW#readme",
   "engines": {
-    "node": ">=22"
+    "node": ">=20"
+  },
+  "dependencies": {
+    "hono": "^4.13.14"
+  },
+  "devDependencies": {
+    "wrangler": "^4.153.0"
+  },
+  "allowScripts": {
+    "esbuild": true,
+    "workerd": true
   }
 }

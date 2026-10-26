@@ -7,56 +7,68 @@ palabra "barbero". Todo el texto de la interfaz está en español de México.
 
 ## Estructura
 
-- `backend/app.js` — servidor Express + SQLite (un solo archivo). También sirve el frontend.
-- `frontend/index.html` — sitio público donde el cliente reserva (servicio → barbero → fecha/hora → datos).
-- `frontend/admin.html` — panel del dueño: agenda, walk-in, mover citas, bloqueos, reportes, configuración.
-- `frontend/login.html` — acceso al panel.
-- `frontend/privacidad.html` — Aviso de Privacidad (LFPDPPP); los datos del responsable se
-  configuran en el panel y llegan por `/api/marca`.
-- `railway.json` — cómo Railway instala, arranca y revisa el servidor (`/api/salud`).
-- `frontend/tema.js` — compartido por las tres pantallas: aplica el color de la barbería
-  (`aplicarColorPrimario()`) y pinta el logo o el monograma (`pintarMarca()`).
-- `backend/barberia.db` — base de datos local. **No se sube al repo** (está en `.gitignore`).
-- `backend/wa_auth_info/` — restos de la antigua sesión de Baileys; ya no se usa y se puede borrar.
+Corre en **Cloudflare Workers** (API con Hono) + **D1** (base de datos SQLite de Cloudflare).
+
+- `src/index.js` — rutas de la API (`/api/*`), login, sesiones y respaldos.
+- `src/agenda.js` — horarios, fechas en la zona de la barbería y `calcularDisponibilidad()`.
+- `src/config.js` — configuración del negocio (`obtenerConfig()`, `CONFIG_EDITABLE`) y validaciones.
+- `src/db.js` — atajos `dbGet` / `dbAll` / `dbRun` sobre D1.
+- `migrations/` — esquema de la base de datos. Para cambiar tablas se agrega un archivo
+  nuevo (`0002_...sql`); nunca se edita uno ya aplicado.
+- `wrangler.jsonc` — configuración de Cloudflare: base D1, zona horaria y archivos estáticos.
+- `frontend/` — se sirve tal cual como archivos estáticos (Cloudflare redirige
+  `/admin.html` → `/admin`, etc.). `_headers` agrega cabeceras de seguridad.
+  - `index.html` — sitio público donde el cliente reserva (servicio → barbero → fecha/hora → datos).
+  - `admin.html` — panel del dueño: agenda, walk-in, mover citas, bloqueos, reportes, configuración.
+  - `login.html` — acceso al panel.
+  - `privacidad.html` — Aviso de Privacidad (LFPDPPP); los datos del responsable se
+    configuran en el panel y llegan por `/api/marca`.
+  - `tema.js` — compartido por las pantallas: aplica el color de la barbería
+    (`aplicarColorPrimario()`) y pinta el logo o el monograma (`pintarMarca()`).
 
 HTML, CSS y JS de cada pantalla van en el mismo archivo, sin frameworks ni build
 (la única excepción es `tema.js`).
 
-## Cómo correrlo
+## Cómo correrlo en tu computadora
 
 ```bash
-cd backend
 npm install
-ADMIN_PASSWORD="tu-clave" npm start          # Mac/Linux
-$env:ADMIN_PASSWORD="tu-clave"; npm start    # Windows PowerShell
+cp .dev.vars.example .dev.vars     # y pon tu contraseña en ADMIN_PASSWORD
+npm run db:migrar:local            # crea la base local (solo la primera vez o con migraciones nuevas)
+npm run dev                        # http://localhost:8787 (clientes) y /login (panel)
 ```
 
-Abrir http://localhost:3000 (clientes) y http://localhost:3000/login.html (panel).
+La base local vive en `.wrangler/` (no se sube al repo). En Windows, si PowerShell
+bloquea `npm`, usar `npm.cmd`. npm 11+ bloquea scripts de instalación no aprobados:
+`esbuild` y `workerd` están aprobados en `allowScripts` de `package.json`.
 
-Variables de entorno: `ADMIN_PASSWORD` (si falta y no hay clave guardada, se genera
-una al azar y se imprime una vez), `PORT`, `DB_PATH`, `TZ` (por defecto
-`America/Mexico_City`), `CORS_ORIGIN`, `TRUST_PROXY`, `RESPALDOS_DIR` (por defecto
-`respaldos/` junto a la BD) y `RESPALDOS_A_GUARDAR` (por defecto 14).
+## Producción (una copia por barbería en Cloudflare, plan gratis)
 
-En Windows, si PowerShell bloquea `npm` (política de ejecución), usar `npm.cmd`.
-npm 11+ bloquea scripts de instalación no aprobados: `sqlite3` está aprobado en
-`allowScripts` de `backend/package.json` porque necesita el suyo para bajar su binario.
+Cada barbería tiene su propio Worker y su propia base D1:
+1. `npx wrangler login`
+2. `npx wrangler d1 create doo-barber` y copiar el `database_id` en `wrangler.jsonc`
+   (para otra barbería: otro `name` y otra base).
+3. `npm run db:migrar` (aplica `migrations/` en Cloudflare).
+4. `npx wrangler secret put ADMIN_PASSWORD` (la contraseña del panel; no está en la BD).
+5. `npm run deploy`
+6. Dominio propio: en Cloudflare, Workers → el Worker → Settings → Domains & Routes → Custom domain
+   (el dominio debe estar en Cloudflare; HTTPS automático).
 
-## Producción (una copia por barbería en Railway)
+Respaldos: D1 guarda el historial de 7 días (Time Travel:
+`npx wrangler d1 time-travel restore doo-barber --timestamp=...`) y el panel descarga
+una copia `.sql` que se restaura con `npx wrangler d1 execute doo-barber --remote --file=respaldo.sql`.
 
-Modelo actual: cada barbería tiene su propio servicio en Railway con su propia BD.
-- Un servicio por barbería conectado a este repo (rama `main`); `railway.json` define build y start.
-- Volumen montado en `/data`; variables `DB_PATH=/data/barberia.db`, `ADMIN_PASSWORD`,
-  `TRUST_PROXY=1` (para que el límite de intentos de login vea la IP real) y `TZ`.
-- Dominio propio de la barbería apuntado con un registro CNAME al dominio que da Railway (HTTPS automático).
-- Respaldos: copia diaria automática en `/data/respaldos` (mismo volumen) y botón
-  "Descargar respaldo ahora" en el panel para guardar copias fuera del servidor.
+Límites del plan gratis que importan: 10 ms de CPU por petición (por eso el login compara
+hashes SHA-256 contra el secreto en vez de usar scrypt), 100,000 peticiones al día,
+5 GB y 100,000 escrituras diarias en D1.
 
 ## Reglas importantes del código
 
-- **Seguridad:** el login usa hash scrypt y sesiones aleatorias en la tabla `sesiones`
-  (7 días). Las rutas de admin usan `verificarAdmin`; las públicas que dan permisos
-  extra al admin usan `detectarAdmin`. Header: `Authorization: Bearer <token>`.
+- **Seguridad:** la contraseña del panel es el secreto `ADMIN_PASSWORD` de Cloudflare;
+  las sesiones son tokens aleatorios (se guarda su hash en `sesiones`, 7 días) y los
+  intentos fallidos se cuentan por IP en `intentos_login`. Las rutas de admin usan
+  `verificarAdmin`; las públicas que dan permisos extra al admin usan `detectarAdmin`.
+  Header: `Authorization: Bearer <token>`.
 - **Nunca confiar en el navegador para precios:** `POST /api/citas` recibe
   `servicio_id` y el servidor toma nombre, precio y duración de la BD.
 - **Todo lo que se pinte con `innerHTML` debe pasar por `escapeHtml()`** (existe en
@@ -65,18 +77,21 @@ Modelo actual: cada barbería tiene su propio servicio en Railway con su propia 
 - `PUT /api/config` solo acepta las claves de `CONFIG_EDITABLE`, cada una con su validador.
 - **Disponibilidad:** toda la lógica vive en `calcularDisponibilidad()` (backend).
   Considera horario semanal, intervalo de turnos, duración del servicio, horas y
-  días bloqueados y las citas de cada barbero. Crear o mover citas pasa por
-  `enFilaDeReservas()` para evitar empalmes simultáneos. No duplicar esta lógica
-  en el frontend.
+  días bloqueados y las citas de cada barbero. No duplicar esta lógica en el frontend.
+- **Sin empalmes aunque reserven al mismo tiempo:** el INSERT/UPDATE de una cita lleva
+  la condición `SIN_EMPALME` (`src/agenda.js`), así que la base solo la guarda si el
+  barbero sigue libre en ese instante. Por eso las citas guardan `inicio_min` y
+  `fin_min` (minutos desde medianoche) además de la hora en texto.
+- **Fechas:** los Workers corren en UTC. "Hoy" y "ahora" se sacan con `ahoraLocal(zona)`
+  usando `ZONA_HORARIA` de `wrangler.jsonc`; nunca usar `new Date().getDate()` directo.
 - Horario semanal: config `horario_semanal` = JSON de 7 días (0 = domingo), cada
   día `null` (cerrado) o `{ "abre": "HH:MM", "cierra": "HH:MM" }`. Intervalo de
   turnos: `intervalo_min` (15, 30 o 60). Las horas de las citas se guardan como
   texto `"01:30 PM"`.
-- Las rutas del backend usan los helpers `dbGet` / `dbAll` / `dbRun` con
-  `async/await` (no callbacks). Express 5 manda los errores de rutas `async` al
-  manejador final, que responde 500 en JSON.
+- Las rutas usan `dbGet(db, sql, params)` / `dbAll` / `dbRun` de `src/db.js` con
+  `c.env.DB`. Los errores no previstos llegan a `app.onError`, que responde 500 en JSON.
 - La ubicación de Google Maps se convierte en link solo en el servidor
-  (`normalizarUrlMaps()` en `app.js`): al guardar `maps_url`, en `/api/catalogo`
+  (`normalizarUrlMaps()` en `src/config.js`): al guardar `maps_url`, en `/api/catalogo`
   y en `GET /api/config/maps-url` (botón "Probar" del panel).
 - **Colores (paleta "Latón", todo claro):** crema `#F7F4EE`, carbón `#17140F`,
   acento `#B8893A`. Cada pantalla define sus colores como variables en `:root`; no
@@ -119,6 +134,9 @@ Hecho:
 5a. **Listo para la primera barbería** (PR luisito2806/PW#8): Railway
    (`railway.json`, `/api/salud`), respaldos diarios y descargables, Aviso de
    Privacidad con aceptación obligatoria, dependencias sin vulnerabilidades.
+5a'. **Migración a Cloudflare** (rama `cloudflare-migracion`): Workers + Hono + D1 en lugar
+   de Express + SQLite en Railway (gratis y más estable); reservas atómicas en SQL,
+   respaldos con Time Travel y descarga `.sql`.
 
 Pendiente (en este orden):
 5b. **Cuando haya ~10 barberías:** una sola plataforma multi-negocio (`negocio_id` en

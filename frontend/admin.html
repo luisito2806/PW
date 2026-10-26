@@ -1335,7 +1335,7 @@
                   Respaldos
                 </h3>
                 <p style="font-size:13px;color:var(--text3);margin-bottom:14px;line-height:1.5;">
-                  El sistema guarda automáticamente una copia de la base de datos cada día y conserva las de las últimas dos semanas. Además, descarga una copia de vez en cuando (por ejemplo, cada semana) y guárdala en tu computadora o en la nube, por si el servidor llegara a fallar.
+                  Cloudflare guarda automáticamente el historial de la base de datos de los últimos 7 días y puede regresarla a cualquier momento de ese periodo. Además, descarga una copia de vez en cuando (por ejemplo, cada semana) y guárdala en tu computadora o en la nube.
                 </p>
               </div>
               <button class="btn-primary" onclick="descargarRespaldo()">Descargar respaldo ahora</button>
@@ -1968,7 +1968,7 @@
         const url = URL.createObjectURL(await res.blob());
         const enlace = document.createElement('a');
         enlace.href = url;
-        enlace.download = `respaldo-${todayISO()}.db`;
+        enlace.download = `respaldo-${todayISO()}.sql`;
         enlace.click();
         URL.revokeObjectURL(url);
       } catch {
