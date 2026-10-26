@@ -6,12 +6,17 @@ const cors = require('cors');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Rutas absolutas: funcionan igual sin importar desde qué carpeta se ejecute `node`
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'barberia.db');
+// Respaldos diarios junto a la base de datos (en Railway, dentro del mismo volumen)
+const RESPALDOS_DIR = process.env.RESPALDOS_DIR || path.join(path.dirname(DB_PATH), 'respaldos');
+const RESPALDOS_A_GUARDAR = Number(process.env.RESPALDOS_A_GUARDAR) || 14;
 
 // Evita que un error inesperado tumbe el servidor
 process.on('unhandledRejection', (err) => {
@@ -66,6 +71,8 @@ db.serialize(() => {
     db.run(`ALTER TABLE citas ADD COLUMN token_cancelacion TEXT`, () => {});
     db.run(`ALTER TABLE citas ADD COLUMN duracion_min INTEGER DEFAULT 60`, () => {});
     db.run(`ALTER TABLE citas ADD COLUMN reagendada INTEGER DEFAULT 0`, () => {});
+    // Cuándo aceptó el cliente el Aviso de Privacidad (vacío en citas registradas por el admin)
+    db.run(`ALTER TABLE citas ADD COLUMN privacidad_aceptada_en TEXT`, () => {});
 
     // 2. Días completos bloqueados
     db.run(`CREATE TABLE IF NOT EXISTS dias_bloqueados (
@@ -128,6 +135,9 @@ db.serialize(() => {
             ['nombre_negocio', 'Doo Barber'],
             ['logo_url', ''],
             ['color_primario', '#B8893A'],
+            ['privacidad_responsable', ''],
+            ['privacidad_domicilio', ''],
+            ['privacidad_contacto', ''],
             ['wa_template', '¡Hola {{cliente}}! 👋 Te recordamos tu cita en *{{negocio}}*:\n📅 Fecha: {{fecha}}\n🕐 Hora: {{hora}}\n💈 Barbero: {{barbero}}\n✂️ Servicio: {{servicio}}\n💰 Total: ${{precio}} MXN\n\nResponde con un *OK* o un 👍 para confirmar de recibido. ¡Te esperamos! 🙌'],
             ['wa_template_reagendada', '¡Hola {{cliente}}! 🔄 Tu cita en *{{negocio}}* ha sido reagendada:\n📅 Nueva fecha: {{fecha}}\n🕐 Nueva hora: {{hora}}\n💈 Barbero: {{barbero}}\n✂️ Servicio: {{servicio}}\n\nResponde con un *OK* o un 👍 para confirmar. ¡Te esperamos! 🙌'],
             ['hora_apertura', '10'],
@@ -364,6 +374,10 @@ const CONFIG_EDITABLE = {
     nombre_negocio: v => textoValido(v, 60),
     logo_url:       v => imagenValida(v),
     color_primario: v => typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v),
+    // Datos del responsable para el Aviso de Privacidad (pueden quedar vacíos)
+    privacidad_responsable: v => typeof v === 'string' && v.length <= 120,
+    privacidad_domicilio:   v => typeof v === 'string' && v.length <= 250,
+    privacidad_contacto:    v => typeof v === 'string' && v.length <= 120,
     wa_template:    v => textoValido(v, 1000),
     wa_template_reagendada: v => textoValido(v, 1000),
     horario_semanal: v => {
@@ -502,6 +516,38 @@ app.delete('/api/reset-citas', verificarAdmin, async (req, res) => {
     res.json({ mensaje: 'Base de datos de citas y bloqueos limpia como nueva.' });
 });
 
+// ─── RESPALDOS ───────────────────────────────────────────────────────
+// Una copia por día (barberia-AAAA-MM-DD.db) en RESPALDOS_DIR; se conservan las
+// últimas RESPALDOS_A_GUARDAR. `VACUUM INTO` hace una copia consistente aunque el
+// servidor esté atendiendo reservas.
+const REGEX_RESPALDO = /^barberia-\d{4}-\d{2}-\d{2}\.db$/;
+
+async function respaldoDiario() {
+    try {
+        fs.mkdirSync(RESPALDOS_DIR, { recursive: true });
+        const archivo = path.join(RESPALDOS_DIR, `barberia-${fechaLocalISO()}.db`);
+        if (!fs.existsSync(archivo)) {
+            await dbRun(`VACUUM INTO ?`, [archivo]);
+            console.log('💾 Respaldo creado:', archivo);
+        }
+        const viejos = fs.readdirSync(RESPALDOS_DIR).filter(f => REGEX_RESPALDO.test(f)).sort().reverse().slice(RESPALDOS_A_GUARDAR);
+        viejos.forEach(f => fs.rmSync(path.join(RESPALDOS_DIR, f), { force: true }));
+    } catch (err) {
+        console.error('Error creando respaldo:', err.message);
+    }
+}
+
+// Poco después de arrancar (ya con las tablas creadas) y luego cada hora; solo copia si aún no hay respaldo de hoy
+setTimeout(respaldoDiario, 10 * 1000);
+setInterval(respaldoDiario, 60 * 60 * 1000);
+
+// Descarga una copia al momento, para guardarla fuera del servidor
+app.get('/api/respaldo', verificarAdmin, async (req, res) => {
+    const temporal = path.join(os.tmpdir(), `respaldo-${crypto.randomBytes(6).toString('hex')}.db`);
+    await dbRun(`VACUUM INTO ?`, [temporal]);
+    res.download(temporal, `respaldo-${fechaLocalISO()}.db`, () => fs.rmSync(temporal, { force: true }));
+});
+
 // ─── CATÁLOGO PÚBLICO (INCLUYE MARCA BLANCA: NOMBRE Y LOGO) ──────────
 app.get('/api/catalogo', async (req, res) => {
     const [servicios, barberos, conf] = await Promise.all([
@@ -523,14 +569,23 @@ app.get('/api/catalogo', async (req, res) => {
     });
 });
 
-// Solo la identidad del negocio, para pantallas que no necesitan el catálogo (login)
+// Identidad del negocio, para pantallas que no necesitan el catálogo (login, aviso de privacidad)
 app.get('/api/marca', async (req, res) => {
     const conf = await obtenerConfig();
     res.json({
         nombre_negocio: conf.nombre_negocio || 'Doo Barber',
         logo_url: conf.logo_url || '',
-        color_primario: conf.color_primario || '#B8893A'
+        color_primario: conf.color_primario || '#B8893A',
+        privacidad_responsable: conf.privacidad_responsable || conf.nombre_negocio || 'Doo Barber',
+        privacidad_domicilio: conf.privacidad_domicilio || '',
+        privacidad_contacto: conf.privacidad_contacto || ''
     });
+});
+
+// Para el hosting: confirma que el servidor y la base de datos responden
+app.get('/api/salud', async (req, res) => {
+    await dbGet(`SELECT 1`);
+    res.json({ ok: true });
 });
 
 // ─── CRUD SERVICIOS ──────────────────────────────────────────────────
@@ -667,6 +722,9 @@ app.post('/api/citas', detectarAdmin, async (req, res) => {
     if (!REGEX_FECHA.test(fecha || '')) {
         return res.status(400).json({ error: 'Fecha inválida.' });
     }
+    if (!esAdmin && req.body.acepta_privacidad !== true) {
+        return res.status(400).json({ error: 'Debes aceptar el Aviso de Privacidad para reservar.' });
+    }
 
     const srv = await dbGet(`SELECT nombre, precio, duracion FROM servicios WHERE id = ? AND activo = 1`, [servicio_id]);
     if (!srv) return res.status(400).json({ error: 'El servicio seleccionado no está disponible.' });
@@ -706,9 +764,10 @@ app.post('/api/citas', detectarAdmin, async (req, res) => {
         const barbero = turno.libres[0];
         const tokenCancelacion = crypto.randomBytes(12).toString('hex');
         const insert = await dbRun(
-            `INSERT INTO citas (cliente, telefono, servicio, precio, hora, fecha, estado, barbero_id, barbero_nombre, token_cancelacion, duracion_min)
-             VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?, ?, ?)`,
-            [cliente, telefono, srv.nombre, srv.precio, hora, fecha, barbero.id, barbero.nombre, tokenCancelacion, duracion]
+            `INSERT INTO citas (cliente, telefono, servicio, precio, hora, fecha, estado, barbero_id, barbero_nombre, token_cancelacion, duracion_min, privacidad_aceptada_en)
+             VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?, ?, ?, ?)`,
+            [cliente, telefono, srv.nombre, srv.precio, hora, fecha, barbero.id, barbero.nombre, tokenCancelacion, duracion,
+             esAdmin ? null : new Date().toISOString()]
         );
 
         return {
