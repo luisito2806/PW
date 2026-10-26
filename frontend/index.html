@@ -1121,20 +1121,12 @@
 <script>
     const API_URL = window.location.origin;
 
-    let SERVICES = [
-        { id:'c1', nombre:'Corte Clásico',    descripcion:'Corte a tijera o a máquina',    precio:150, duracion:'30 min' },
-        { id:'c2', nombre:'Corte + Barba',     descripcion:'Corte y arreglo de barba',      precio:250, duracion:'50 min' },
-        { id:'c3', nombre:'Corte + Ceja',      descripcion:'Corte y depilación de cejas',   precio:200, duracion:'40 min' },
-        { id:'c4', nombre:'Servicio Completo', descripcion:'Pelo, barba y cejas incluidos', precio:300, duracion:'70 min' },
-    ];
-
+    // Todo viene del servidor (/api/catalogo); no hay datos de respaldo escritos a mano
+    let SERVICES = [];
     let BARBERS = [];
-
-    let HORARIOS = [
-        '10:00 AM','11:00 AM','12:00 PM','01:00 PM',
-        '02:00 PM','03:00 PM','04:00 PM','05:00 PM',
-        '06:00 PM','07:00 PM'
-    ];
+    // Horario semanal: 7 días (0 = domingo), cada uno null (cerrado) o { abre, cierra }
+    let HORARIO_SEMANAL = null;
+    let catalogoCargado = false;
 
     let MAPS_URL = 'https://maps.google.com';
 
@@ -1151,9 +1143,13 @@
 
     const today   = new Date();
     const todayISO = toISO(today);
-    const maxDate = new Date(today);
-    maxDate.setDate(today.getDate() + 30);
-    const maxISO  = toISO(maxDate);
+    let maxISO = calcularMaxISO(30);
+
+    function calcularMaxISO(dias) {
+        const d = new Date(today);
+        d.setDate(today.getDate() + dias);
+        return toISO(d);
+    }
 
     /* ── UTILS ── */
     function toISO(d) {
@@ -1248,9 +1244,11 @@
                 }
 
                 // 3. Servicios, Barberos, Horarios y Ubicación Maps
-                if (data.servicios && data.servicios.length > 0) SERVICES = data.servicios;
-                if (data.barberos) BARBERS = data.barberos;
-                if (data.horarios && data.horarios.length > 0) HORARIOS = data.horarios;
+                SERVICES = data.servicios || [];
+                BARBERS = data.barberos || [];
+                HORARIO_SEMANAL = Array.isArray(data.horario_semanal) ? data.horario_semanal : null;
+                if (data.dias_max_reserva) maxISO = calcularMaxISO(Number(data.dias_max_reserva));
+                catalogoCargado = true;
                 if (data.maps_url) {
                     MAPS_URL = normalizarUrlMaps(data.maps_url);
                     const btnMaps = document.getElementById('headerMapsBtn');
@@ -1302,6 +1300,12 @@
     /* ── SERVICES ── */
     function renderServices() {
         const grid = document.getElementById('servicesGrid');
+        if (SERVICES.length === 0) {
+            grid.innerHTML = `<div class="status-msg">${catalogoCargado
+                ? 'Por el momento no hay servicios disponibles.'
+                : '⚠️ No pudimos conectar con la barbería. Intenta de nuevo en unos minutos.'}</div>`;
+            return;
+        }
         grid.innerHTML = SERVICES.map(s => {
             const name = s.nombre || s.name;
             const desc = s.descripcion !== undefined ? s.descripcion : (s.desc || '');
@@ -1419,7 +1423,9 @@
             el.className = 'cal-day';
             el.textContent = d;
 
-            if (iso < todayISO || iso > maxISO) {
+            const diaSemana = new Date(calYear, calMonth, d).getDay();
+            const cerrado = HORARIO_SEMANAL && !HORARIO_SEMANAL[diaSemana];
+            if (iso < todayISO || iso > maxISO || cerrado) {
                 el.classList.add('cal-off');
             } else {
                 if (iso === todayISO) el.classList.add('cal-today');
@@ -1456,38 +1462,36 @@
         container.innerHTML  = `<div class="slots-loading"><div class="spinner"></div>Consultando...</div>`;
 
         try {
-            const res  = await fetch(`${API_URL}/api/disponibilidad?fecha=${iso}&barbero_id=${selBarber.id}`);
+            const params = new URLSearchParams({ fecha: iso, barbero_id: selBarber.id, servicio_id: selService.id });
+            const res  = await fetch(`${API_URL}/api/disponibilidad?${params}`);
             const data = await res.json();
 
+            if (!res.ok) {
+                container.innerHTML = `<div class="status-msg">⚠️ ${escapeHtml(data.error || 'No se pudo consultar la disponibilidad')}</div>`;
+                return;
+            }
             if (data.bloqueado) {
                 container.innerHTML = `<div class="status-msg">📵 Día no disponible<br><strong>${escapeHtml(data.motivo || '')}</strong></div>`;
                 return;
             }
-            renderSlots(data.horasOcupadas || [], iso);
+            renderSlots(data.horarios || []);
         } catch {
             container.innerHTML = `<div class="status-msg">⚠️ Sin conexión con el servidor</div>`;
         }
     }
 
-    function to24h(hora) {
-        const [t, mod] = hora.split(' ');
-        let [h] = t.split(':');
-        h = parseInt(h, 10);
-        if (mod === 'PM' && h !== 12) h += 12;
-        if (mod === 'AM' && h === 12) h = 0;
-        return h;
-    }
-
-    function renderSlots(ocupadas, fechaISO) {
+    // La disponibilidad (citas, duración del servicio, bloqueos y horas pasadas) la calcula el servidor
+    function renderSlots(horarios) {
         const container = document.getElementById('slotsContainer');
-        const isToday   = fechaISO === todayISO;
-        const nowHour   = new Date().getHours();
+        if (!horarios.some(h => h.disponible)) {
+            container.innerHTML = `<div class="status-msg">😕 Ya no hay horarios libres este día.<br>Prueba con otra fecha.</div>`;
+            return;
+        }
 
-        const slots = HORARIOS.map(h => {
-            const off = ocupadas.includes(h) || (isToday && to24h(h) <= nowHour);
-            const sel = h === selTime;
-            return `<div class="slot${off ? ' slot-off' : ''}${sel ? ' slot-sel' : ''}"
-                         ${off ? '' : `onclick="pickTime('${h}',this)"`}>${h}</div>`;
+        const slots = horarios.map(({ hora, disponible }) => {
+            const sel = hora === selTime;
+            return `<div class="slot${disponible ? '' : ' slot-off'}${sel ? ' slot-sel' : ''}"
+                         ${disponible ? `onclick="pickTime('${escapeHtml(hora)}',this)"` : ''}>${escapeHtml(hora)}</div>`;
         }).join('');
 
         container.innerHTML = `<div class="slots-grid">${slots}</div>`;
@@ -1607,6 +1611,11 @@
                 setStep(1);
             } else {
                 toast(data.error || 'No se pudo reservar el turno', 'error');
+                // Si alguien más tomó el horario, se recargan los turnos libres
+                if (res.status === 409) {
+                    closeModal();
+                    pickDate(selDate);
+                }
             }
         } catch {
             toast('Error de conexión con el servidor', 'error');

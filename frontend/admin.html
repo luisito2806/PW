@@ -386,6 +386,7 @@
     input[type="date"],
     input[type="text"],
     input[type="number"],
+    input[type="time"],
     input[type="tel"],
     input[type="file"],
     select,
@@ -673,6 +674,27 @@
       grid-template-columns: 1fr 1fr;
       gap: 10px;
     }
+
+    /* ─── HORARIO SEMANAL ───────────────────────────────── */
+    .horario-semanal { display: flex; flex-direction: column; gap: 6px; }
+    .horario-dia {
+      display: grid;
+      grid-template-columns: 110px 1fr 1fr;
+      gap: 8px;
+      align-items: center;
+    }
+    .horario-dia label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text2);
+      cursor: pointer;
+    }
+    .horario-dia input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
+    .horario-dia input[type="time"] { width: 100%; min-width: 0; }
+    .horario-dia.cerrado input[type="time"] { opacity: 0.35; }
+    .form-hint { font-size: 11.5px; color: var(--text3); display: block; margin-top: 4px; }
 
     .btn-primary {
       width: 100%;
@@ -1335,8 +1357,8 @@
               <input type="text" id="srvDesc" placeholder="Corte y arreglo de barba" />
             </div>
             <div class="form-group">
-              <label class="form-label">Etiqueta Duración</label>
-              <input type="text" id="srvDur" placeholder="Ej. 50 min" value="60 min" />
+              <label class="form-label">Duración (minutos)</label>
+              <input type="number" id="srvDur" min="5" max="480" step="5" placeholder="Ej. 50" value="60" />
             </div>
           </div>
           <button class="btn-primary" onclick="agregarServicio()">+ Agregar Servicio</button>
@@ -1355,15 +1377,23 @@
             Horarios, Google Maps y Anti-Spam
           </h3>
 
-          <div class="from-to-row">
-            <div class="form-group">
-              <label class="form-label">Hora Apertura (Formato 24h)</label>
-              <input type="number" id="confApertura" min="6" max="22" value="10" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">Hora Último Turno (24h)</label>
-              <input type="number" id="confCierre" min="8" max="23" value="19" />
-            </div>
+          <div class="form-group">
+            <label class="form-label">Horario semanal</label>
+            <div class="horario-semanal" id="horarioSemanal"></div>
+            <span class="form-hint">
+              Desmarca los días que no abres. La hora de cierre es cuando debe terminar el último servicio.
+            </span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Cada cuánto inicia un turno</label>
+            <select id="confIntervalo">
+              <option value="15">Cada 15 minutos</option>
+              <option value="30">Cada 30 minutos</option>
+              <option value="60">Cada hora</option>
+            </select>
+            <span class="form-hint">
+              Un servicio largo ocupa los turnos que necesite (ej. 70 min con turnos de 30 ocupa 3).
+            </span>
           </div>
           <div class="form-group">
             <label class="form-label">Dirección o Link de Google Maps ("Cómo llegar")</label>
@@ -1722,8 +1752,8 @@
           waTemplateGlobal = conf.wa_template;
           document.getElementById('inputWaTemplate').value = waTemplateGlobal;
         }
-        document.getElementById('confApertura').value  = conf.hora_apertura || 10;
-        document.getElementById('confCierre').value    = conf.hora_cierre || 19;
+        renderHorarioSemanal(conf.horario_semanal);
+        document.getElementById('confIntervalo').value = String(conf.intervalo_min || 60);
         document.getElementById('confMaps').value      = conf.maps_url || '';
         document.getElementById('confMaxFaltas').value = conf.max_faltas || 2;
       } catch (e) {
@@ -1872,14 +1902,18 @@
       const nombre = document.getElementById('srvNombre').value.trim();
       const precio = document.getElementById('srvPrecio').value;
       const descripcion = document.getElementById('srvDesc').value.trim();
-      const duracion = document.getElementById('srvDur').value.trim() || '60 min';
+      const duracion = document.getElementById('srvDur').value.trim() || '60';
       if (!nombre || !precio) return alert('El nombre y el precio del servicio son obligatorios.');
 
-      await fetch(`${API_URL}/api/servicios`, {
+      const res = await fetch(`${API_URL}/api/servicios`, {
         method: 'POST',
         headers: authHeaders,
         body: JSON.stringify({ nombre, precio, descripcion, duracion })
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return alert(data.error || 'No se pudo agregar el servicio.');
+      }
       document.getElementById('srvNombre').value = '';
       document.getElementById('srvPrecio').value = '';
       document.getElementById('srvDesc').value = '';
@@ -1892,23 +1926,83 @@
       cargarTodoCatalogo();
     }
 
+    /* ── HORARIO SEMANAL (0 = domingo; se muestra de lunes a domingo) ── */
+    const NOMBRES_DIAS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const ORDEN_DIAS = [1, 2, 3, 4, 5, 6, 0];
+
+    function renderHorarioSemanal(horario) {
+      const cont = document.getElementById('horarioSemanal');
+      const semana = Array.isArray(horario) && horario.length === 7 ? horario : Array(7).fill({ abre: '10:00', cierra: '20:00' });
+      cont.innerHTML = ORDEN_DIAS.map(d => {
+        const dia = semana[d];
+        const abierto = !!dia;
+        return `
+          <div class="horario-dia${abierto ? '' : ' cerrado'}" id="hDia${d}">
+            <label><input type="checkbox" id="hAbierto${d}" ${abierto ? 'checked' : ''} onchange="toggleDiaHorario(${d})" /> ${NOMBRES_DIAS[d]}</label>
+            <input type="time" id="hAbre${d}" step="900" value="${escapeHtml(dia?.abre || '10:00')}" ${abierto ? '' : 'disabled'} aria-label="${NOMBRES_DIAS[d]}: abre" />
+            <input type="time" id="hCierra${d}" step="900" value="${escapeHtml(dia?.cierra || '20:00')}" ${abierto ? '' : 'disabled'} aria-label="${NOMBRES_DIAS[d]}: cierra" />
+          </div>`;
+      }).join('');
+    }
+
+    function toggleDiaHorario(d) {
+      const abierto = document.getElementById(`hAbierto${d}`).checked;
+      document.getElementById(`hDia${d}`).classList.toggle('cerrado', !abierto);
+      document.getElementById(`hAbre${d}`).disabled = !abierto;
+      document.getElementById(`hCierra${d}`).disabled = !abierto;
+    }
+
+    // Devuelve el horario como arreglo de 7 días, o lanza un error con un mensaje para el usuario
+    function leerHorarioSemanal() {
+      return Array.from({ length: 7 }, (_, d) => {
+        if (!document.getElementById(`hAbierto${d}`).checked) return null;
+        const abre = document.getElementById(`hAbre${d}`).value;
+        const cierra = document.getElementById(`hCierra${d}`).value;
+        if (!abre || !cierra || abre >= cierra) {
+          throw new Error(`Revisa el ${NOMBRES_DIAS[d]}: la hora de cierre debe ser después de la de apertura.`);
+        }
+        return { abre, cierra };
+      });
+    }
+
     async function guardarAjustesNegocio() {
-      const apertura = document.getElementById('confApertura').value;
-      const cierre   = document.getElementById('confCierre').value;
+      let horario;
+      try {
+        horario = leerHorarioSemanal();
+      } catch (err) {
+        return alert(err.message);
+      }
+      if (horario.every(d => d === null)) {
+        return alert('Debes dejar al menos un día abierto.');
+      }
+
+      const intervalo = document.getElementById('confIntervalo').value;
       const rawMaps  = document.getElementById('confMaps').value.trim();
       const mapsUrlFinal = normalizarUrlMaps(rawMaps);
       const faltas   = document.getElementById('confMaxFaltas').value;
 
       document.getElementById('confMaps').value = mapsUrlFinal;
 
-      await Promise.all([
-        fetch(`${API_URL}/api/config`, { method: 'PUT', headers: authHeaders, body: JSON.stringify({ clave: 'hora_apertura', valor: apertura }) }),
-        fetch(`${API_URL}/api/config`, { method: 'PUT', headers: authHeaders, body: JSON.stringify({ clave: 'hora_cierre', valor: cierre }) }),
-        fetch(`${API_URL}/api/config`, { method: 'PUT', headers: authHeaders, body: JSON.stringify({ clave: 'maps_url', valor: mapsUrlFinal }) }),
-        fetch(`${API_URL}/api/config`, { method: 'PUT', headers: authHeaders, body: JSON.stringify({ clave: 'max_faltas', valor: faltas }) })
-      ]);
-      alert('Ajustes y ubicación de Google Maps guardados correctamente.');
-      cargarTodoCatalogo();
+      const cambios = [
+        ['horario_semanal', JSON.stringify(horario)],
+        ['intervalo_min', intervalo],
+        ['maps_url', mapsUrlFinal],
+        ['max_faltas', faltas]
+      ];
+      try {
+        const respuestas = await Promise.all(cambios.map(([clave, valor]) =>
+          fetch(`${API_URL}/api/config`, { method: 'PUT', headers: authHeaders, body: JSON.stringify({ clave, valor }) })
+        ));
+        const fallida = respuestas.find(r => !r.ok);
+        if (fallida) {
+          const data = await fallida.json().catch(() => ({}));
+          return alert(data.error || 'No se pudieron guardar algunos ajustes.');
+        }
+        alert('Horario y ajustes del negocio guardados correctamente.');
+        cargarTodoCatalogo();
+      } catch {
+        alert('Error de conexión con el servidor.');
+      }
     }
 
     /* ── WHATSAPP BAILEYS QR STATUS ───────────────────────── */
