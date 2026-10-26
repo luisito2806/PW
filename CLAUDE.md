@@ -84,7 +84,7 @@ Hecho:
    de la raíz solo con scripts, paso 3 del stepper activo al confirmar, Maps
    normalizado en el servidor, reportes de semana por rango en SQL, sin sello
    "Conexión segura", zoom permitido en móvil, rutas con `async/await`.
-4. **Sección 4 — Colores** (rama `colores-seccion-4`): paleta "Latón" en claro para
+4. **Sección 4 — Colores** (PR luisito2806/PW#6): paleta "Latón" en claro para
    clientes, login y panel; monograma con la inicial en lugar de los 3 puntos;
    `color_primario` configurable en el panel (Configuración → Identidad del Negocio).
 
