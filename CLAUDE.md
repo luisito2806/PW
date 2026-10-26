@@ -51,8 +51,14 @@ una al azar y se imprime una vez), `PORT`, `DB_PATH`, `TZ` (por defecto
   día `null` (cerrado) o `{ "abre": "HH:MM", "cierra": "HH:MM" }`. Intervalo de
   turnos: `intervalo_min` (15, 30 o 60). Las horas de las citas se guardan como
   texto `"01:30 PM"`.
-- Para código nuevo del backend usar los helpers `dbGet` / `dbAll` / `dbRun` con
-  `async/await` en lugar de callbacks anidados.
+- Las rutas del backend usan los helpers `dbGet` / `dbAll` / `dbRun` con
+  `async/await` (no callbacks). Express 5 manda los errores de rutas `async` al
+  manejador final, que responde 500 en JSON.
+- La ubicación de Google Maps se convierte en link solo en el servidor
+  (`normalizarUrlMaps()` en `app.js`): al guardar `maps_url`, en `/api/catalogo`
+  y en `GET /api/config/maps-url` (botón "Probar" del panel).
+- `GET /api/reportes` acepta `fecha` (un día) o `desde` / `hasta` (rango) y
+  `barbero_id`; los filtros se hacen en SQL, no en el navegador.
 
 ## Estado del proyecto
 
@@ -63,17 +69,12 @@ Hecho:
 2. **Sección 2 — Agenda** (PR luisito2806/PW#3): horario semanal, duración de
    servicios, sin empalmes, fechas pasadas/límite de 30 días, WhatsApp sin caídas,
    rutas absolutas.
+3. **Sección 3 — Limpieza** (rama `limpieza-seccion-3`): sin `config.js`, `package.json`
+   de la raíz solo con scripts, paso 3 del stepper activo al confirmar, Maps
+   normalizado en el servidor, reportes de semana por rango en SQL, sin sello
+   "Conexión segura", zoom permitido en móvil, rutas con `async/await`.
 
 Pendiente (en este orden):
-3. **Sección 3 — Limpieza:**
-   - quitar `frontend/config.js` (no se usa);
-   - limpiar el `package.json` de la raíz (dependencias duplicadas);
-   - el paso 3 "Confirmar" del stepper nunca se activa;
-   - `normalizarUrlMaps` está duplicada en `index.html` y `admin.html`;
-   - los reportes de "semana" bajan todas las citas y filtran en el navegador (moverlo al servidor con rango de fechas);
-   - quitar el sello "Conexión segura" del login mientras no haya HTTPS;
-   - quitar `user-scalable=no` en `index.html`;
-   - pasar a `async/await` las rutas que quedan con callbacks.
 4. **Colores:** el sitio de clientes es claro y el panel y el login son oscuros, sin
    una línea común; el verde menta y los 3 puntos se ven genéricos. Propuestas:
    "Latón" (crema `#F7F4EE`, carbón `#17140F`, acento `#B8893A`) o "Clásico"

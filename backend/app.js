@@ -446,6 +446,18 @@ function imagenValida(valor) {
         && /^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/.test(valor);
 }
 
+// Acepta un link de Google Maps, un <iframe> copiado de Google Maps o una dirección
+// escrita a mano, y devuelve siempre un link que abre Google Maps
+function normalizarUrlMaps(valor) {
+    let v = typeof valor === 'string' ? valor.trim() : '';
+    if (!v) return 'https://maps.google.com';
+    const iframe = v.match(/src=["']([^"']+)["']/i);
+    if (iframe) v = iframe[1];
+    if (/^https?:\/\//i.test(v)) return v;
+    if (/^(maps\.app\.goo\.gl|goo\.gl\/maps|www\.google\.|google\.com\/maps)/i.test(v)) return 'https://' + v;
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(v)}`;
+}
+
 // Claves que el panel puede modificar y cómo se valida cada una
 const CONFIG_EDITABLE = {
     nombre_negocio: v => textoValido(v, 60),
@@ -456,7 +468,7 @@ const CONFIG_EDITABLE = {
         catch { return false; }
     },
     intervalo_min:  v => INTERVALOS_VALIDOS.includes(Number(v)),
-    maps_url:       v => v === '' || (typeof v === 'string' && v.length <= 1000 && /^https?:\/\//i.test(v)),
+    maps_url:       v => typeof v === 'string' && v.length <= 1000 && /^https?:\/\//i.test(v),
     max_faltas:     v => Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 50
 };
 
@@ -522,14 +534,17 @@ function obtenerToken(req) {
     return header.startsWith('Bearer ') ? header.slice(7) : '';
 }
 
-function esSesionValida(token, cb) {
-    if (!token) return cb(false);
-    db.get(`SELECT expira FROM sesiones WHERE token_hash = ?`, [hashToken(token)], (err, row) => {
-        cb(!err && !!row && row.expira > Date.now());
-    });
+async function esSesionValida(token) {
+    if (!token) return false;
+    try {
+        const row = await dbGet(`SELECT expira FROM sesiones WHERE token_hash = ?`, [hashToken(token)]);
+        return !!row && row.expira > Date.now();
+    } catch {
+        return false;
+    }
 }
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
     const ip = req.ip;
     const registro = intentosLogin.get(ip);
     if (registro && registro.bloqueadoHasta > Date.now()) {
@@ -538,52 +553,41 @@ app.post('/api/login', (req, res) => {
     }
 
     const { password } = req.body;
-    db.get(`SELECT valor FROM seguridad WHERE clave = 'admin_password_hash'`, [], (err, row) => {
-        if (err || !row) return res.status(500).json({ error: 'Error de autenticación' });
+    const row = await dbGet(`SELECT valor FROM seguridad WHERE clave = 'admin_password_hash'`);
+    if (!row) return res.status(500).json({ error: 'Error de autenticación' });
 
-        if (!verificarPassword(password, row.valor)) {
-            // Si ya pasó un bloqueo anterior, el conteo empieza de cero
-            const bloqueoVencido = registro && registro.bloqueadoHasta && registro.bloqueadoHasta <= Date.now();
-            const intentos = (bloqueoVencido ? 0 : (registro?.intentos || 0)) + 1;
-            intentosLogin.set(ip, {
-                intentos,
-                bloqueadoHasta: intentos >= MAX_INTENTOS ? Date.now() + BLOQUEO_MS : 0
-            });
-            return res.status(401).json({ error: 'Contraseña incorrecta' });
-        }
+    if (!verificarPassword(password, row.valor)) {
+        // Si ya pasó un bloqueo anterior, el conteo empieza de cero
+        const bloqueoVencido = registro && registro.bloqueadoHasta && registro.bloqueadoHasta <= Date.now();
+        const intentos = (bloqueoVencido ? 0 : (registro?.intentos || 0)) + 1;
+        intentosLogin.set(ip, {
+            intentos,
+            bloqueadoHasta: intentos >= MAX_INTENTOS ? Date.now() + BLOQUEO_MS : 0
+        });
+        return res.status(401).json({ error: 'Contraseña incorrecta' });
+    }
 
-        intentosLogin.delete(ip);
-        const token = crypto.randomBytes(32).toString('hex');
-        db.run(`INSERT INTO sesiones (token_hash, expira) VALUES (?, ?)`,
-            [hashToken(token), Date.now() + SESION_DURACION_MS],
-            (errS) => {
-                if (errS) return res.status(500).json({ error: 'No se pudo iniciar sesión' });
-                res.json({ exito: true, token });
-            });
-    });
+    intentosLogin.delete(ip);
+    const token = crypto.randomBytes(32).toString('hex');
+    await dbRun(`INSERT INTO sesiones (token_hash, expira) VALUES (?, ?)`, [hashToken(token), Date.now() + SESION_DURACION_MS]);
+    res.json({ exito: true, token });
 });
 
-app.post('/api/logout', (req, res) => {
+app.post('/api/logout', async (req, res) => {
     const token = obtenerToken(req);
-    if (!token) return res.json({ mensaje: 'Sesión cerrada' });
-    db.run(`DELETE FROM sesiones WHERE token_hash = ?`, [hashToken(token)], () => {
-        res.json({ mensaje: 'Sesión cerrada' });
-    });
+    if (token) await dbRun(`DELETE FROM sesiones WHERE token_hash = ?`, [hashToken(token)]).catch(() => {});
+    res.json({ mensaje: 'Sesión cerrada' });
 });
 
-function verificarAdmin(req, res, next) {
-    esSesionValida(obtenerToken(req), (valida) => {
-        if (valida) return next();
-        res.status(401).json({ error: 'Sesión inválida o expirada' });
-    });
+async function verificarAdmin(req, res, next) {
+    if (await esSesionValida(obtenerToken(req))) return next();
+    res.status(401).json({ error: 'Sesión inválida o expirada' });
 }
 
 // Para rutas públicas que dan permisos extra al admin (agendar sin límite de faltas, cancelar sin token)
-function detectarAdmin(req, res, next) {
-    esSesionValida(obtenerToken(req), (valida) => {
-        req.esAdmin = valida;
-        next();
-    });
+async function detectarAdmin(req, res, next) {
+    req.esAdmin = await esSesionValida(obtenerToken(req));
+    next();
 }
 
 // ─── ENDPOINTS WHATSAPP ──────────────────────────────────────────────
@@ -605,16 +609,12 @@ app.post('/api/whatsapp/logout', verificarAdmin, async (req, res) => {
 });
 
 // ─── LIMPIAR BASE DE DATOS DE CITAS Y BLOQUEOS (DEJAR COMO NUEVO) ────
-app.delete('/api/reset-citas', verificarAdmin, (req, res) => {
-    db.serialize(() => {
-        db.run(`DELETE FROM citas`);
-        db.run(`DELETE FROM dias_bloqueados`);
-        db.run(`DELETE FROM horas_bloqueadas`);
-        db.run(`DELETE FROM sqlite_sequence WHERE name IN ('citas', 'dias_bloqueados', 'horas_bloqueadas')`, (err) => {
-            if (err) return res.status(500).json({ error: err.message });
-            res.json({ mensaje: 'Base de datos de citas y bloqueos limpia como nueva.' });
-        });
-    });
+app.delete('/api/reset-citas', verificarAdmin, async (req, res) => {
+    await dbRun(`DELETE FROM citas`);
+    await dbRun(`DELETE FROM dias_bloqueados`);
+    await dbRun(`DELETE FROM horas_bloqueadas`);
+    await dbRun(`DELETE FROM sqlite_sequence WHERE name IN ('citas', 'dias_bloqueados', 'horas_bloqueadas')`);
+    res.json({ mensaje: 'Base de datos de citas y bloqueos limpia como nueva.' });
 });
 
 // ─── CATÁLOGO PÚBLICO (INCLUYE MARCA BLANCA: NOMBRE Y LOGO) ──────────
@@ -633,12 +633,12 @@ app.get('/api/catalogo', async (req, res) => {
         horario_semanal: conf.horario,
         intervalo_min: conf.intervalo,
         dias_max_reserva: DIAS_MAX_RESERVA,
-        maps_url: conf.maps_url || 'https://maps.google.com'
+        maps_url: normalizarUrlMaps(conf.maps_url)
     });
 });
 
 // ─── CRUD SERVICIOS ──────────────────────────────────────────────────
-app.post('/api/servicios', verificarAdmin, (req, res) => {
+app.post('/api/servicios', verificarAdmin, async (req, res) => {
     const { nombre, descripcion, precio, duracion } = req.body;
     if (!textoValido(nombre, 80)) return res.status(400).json({ error: 'Nombre requerido (máx. 80 caracteres)' });
     const precioNum = Number(precio);
@@ -652,46 +652,36 @@ app.post('/api/servicios', verificarAdmin, (req, res) => {
     if (!Number.isFinite(duracionNum) || duracionNum < DURACION_MIN || duracionNum > DURACION_MAX) {
         return res.status(400).json({ error: `La duración debe ser entre ${DURACION_MIN} y ${DURACION_MAX} minutos` });
     }
-    db.run(
+    const insert = await dbRun(
         `INSERT INTO servicios (nombre, descripcion, precio, duracion, activo) VALUES (?, ?, ?, ?, 1)`,
-        [nombre.trim(), (descripcion || '').trim(), precioNum, `${duracionNum} min`],
-        function(err) {
-            if (err) return res.status(500).json({ error: err.message });
-            res.json({ id: this.lastID, mensaje: 'Servicio agregado' });
-        }
+        [nombre.trim(), (descripcion || '').trim(), precioNum, `${duracionNum} min`]
     );
+    res.json({ id: insert.lastID, mensaje: 'Servicio agregado' });
 });
 
-app.delete('/api/servicios/:id', verificarAdmin, (req, res) => {
-    db.run(`UPDATE servicios SET activo = 0 WHERE id = ?`, [req.params.id], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ mensaje: 'Servicio eliminado' });
-    });
+app.delete('/api/servicios/:id', verificarAdmin, async (req, res) => {
+    await dbRun(`UPDATE servicios SET activo = 0 WHERE id = ?`, [req.params.id]);
+    res.json({ mensaje: 'Servicio eliminado' });
 });
 
 // ─── CRUD BARBEROS ───────────────────────────────────────────────────
-app.post('/api/barberos', verificarAdmin, (req, res) => {
+app.post('/api/barberos', verificarAdmin, async (req, res) => {
     const { nombre, especialidad, foto } = req.body;
     if (!textoValido(nombre, 60)) return res.status(400).json({ error: 'Nombre requerido (máx. 60 caracteres)' });
     if (especialidad && (typeof especialidad !== 'string' || especialidad.length > 60)) {
         return res.status(400).json({ error: 'Especialidad inválida (máx. 60 caracteres)' });
     }
     if (!imagenValida(foto)) return res.status(400).json({ error: 'Foto inválida' });
-    db.run(
+    const insert = await dbRun(
         `INSERT INTO barberos (nombre, especialidad, foto, activo) VALUES (?, ?, ?, 1)`,
-        [nombre.trim(), (especialidad || 'Barbero').trim(), foto || ''],
-        function(err) {
-            if (err) return res.status(500).json({ error: err.message });
-            res.json({ id: this.lastID, mensaje: 'Barbero agregado' });
-        }
+        [nombre.trim(), (especialidad || 'Barbero').trim(), foto || '']
     );
+    res.json({ id: insert.lastID, mensaje: 'Barbero agregado' });
 });
 
-app.delete('/api/barberos/:id', verificarAdmin, (req, res) => {
-    db.run(`UPDATE barberos SET activo = 0 WHERE id = ?`, [req.params.id], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ mensaje: 'Barbero eliminado' });
-    });
+app.delete('/api/barberos/:id', verificarAdmin, async (req, res) => {
+    await dbRun(`UPDATE barberos SET activo = 0 WHERE id = ?`, [req.params.id]);
+    res.json({ mensaje: 'Barbero eliminado' });
 });
 
 // ─── CONFIGURACIÓN GENERAL ───────────────────────────────────────────
@@ -704,20 +694,25 @@ app.get('/api/config', verificarAdmin, async (req, res) => {
     res.json(config);
 });
 
-app.put('/api/config', verificarAdmin, (req, res) => {
-    const { clave, valor } = req.body;
+app.put('/api/config', verificarAdmin, async (req, res) => {
+    const { clave } = req.body;
+    let { valor } = req.body;
     if (!clave || valor === undefined) return res.status(400).json({ error: 'Faltan datos' });
     if (!Object.prototype.hasOwnProperty.call(CONFIG_EDITABLE, clave)) {
         return res.status(400).json({ error: 'Clave de configuración no permitida' });
     }
+    if (clave === 'maps_url') valor = normalizarUrlMaps(valor);
     if (!CONFIG_EDITABLE[clave](valor)) {
         return res.status(400).json({ error: `Valor inválido para ${clave}` });
     }
     const valorFinal = typeof valor === 'string' ? valor.trim() : String(valor);
-    db.run(`INSERT OR REPLACE INTO configuracion (clave, valor) VALUES (?, ?)`, [clave, valorFinal], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ mensaje: 'Configuración actualizada' });
-    });
+    await dbRun(`INSERT OR REPLACE INTO configuracion (clave, valor) VALUES (?, ?)`, [clave, valorFinal]);
+    res.json({ mensaje: 'Configuración actualizada', valor: valorFinal });
+});
+
+// Muestra a qué link quedaría convertida una ubicación, sin guardarla (botón "Probar" del panel)
+app.get('/api/config/maps-url', verificarAdmin, (req, res) => {
+    res.json({ url: normalizarUrlMaps(req.query.valor) });
 });
 
 // ─── DISPONIBILIDAD (CLIENTE) ────────────────────────────────────────
@@ -747,16 +742,16 @@ app.get('/api/disponibilidad', async (req, res) => {
 // ─── VERIFICAR ESTADO DE TICKET ACTIVO EN EL CELULAR DEL CLIENTE ─────
 // Requiere el token de cancelación que recibió el cliente al agendar, para que
 // nadie pueda consultar citas ajenas probando IDs consecutivos.
-app.get('/api/citas/:id/ticket-status', (req, res) => {
+app.get('/api/citas/:id/ticket-status', async (req, res) => {
     const { id } = req.params;
     const tokenCliente = String(req.query.token || '');
     if (!tokenCliente) return res.json({ activa: false });
-    db.get(`SELECT id, cliente, servicio, precio, fecha, hora, estado, barbero_nombre FROM citas WHERE id = ? AND token_cancelacion = ?`, [id, tokenCliente], (err, row) => {
-        if (err) return res.status(500).json({ error: err.message });
-        if (!row) return res.json({ activa: false });
-        const activa = (row.estado === 'pendiente');
-        res.json({ activa, cita: row });
-    });
+    const row = await dbGet(
+        `SELECT id, cliente, servicio, precio, fecha, hora, estado, barbero_nombre FROM citas WHERE id = ? AND token_cancelacion = ?`,
+        [id, tokenCliente]
+    );
+    if (!row) return res.json({ activa: false });
+    res.json({ activa: row.estado === 'pendiente', cita: row });
 });
 
 // ─── AGENDAR CITA ────────────────────────────────────────────────────
@@ -902,89 +897,70 @@ app.patch('/api/citas/:id/reagendar', verificarAdmin, async (req, res) => {
 });
 
 // ─── CANCELAR CITA ───────────────────────────────────────────────────
-app.delete('/api/citas/:id', detectarAdmin, (req, res) => {
+app.delete('/api/citas/:id', detectarAdmin, async (req, res) => {
     const { id } = req.params;
     const tokenCliente = req.query.token;
-    const esAdmin = req.esAdmin;
 
-    if (esAdmin) {
-        db.run(`UPDATE citas SET estado = 'cancelada' WHERE id = ?`, [id], function(err) {
-            if (err) return res.status(500).json({ error: err.message });
-            res.json({ mensaje: 'Cita cancelada correctamente' });
-        });
-    } else {
-        if (!tokenCliente) return res.status(403).json({ error: 'Token de cancelación requerido' });
-        db.run(`UPDATE citas SET estado = 'cancelada' WHERE id = ? AND token_cancelacion = ?`, [id, tokenCliente], function(err) {
-            if (err) return res.status(500).json({ error: err.message });
-            if (this.changes === 0) return res.status(403).json({ error: 'No autorizado para cancelar esta cita' });
-            res.json({ mensaje: 'Cita cancelada correctamente' });
-        });
+    if (req.esAdmin) {
+        await dbRun(`UPDATE citas SET estado = 'cancelada' WHERE id = ?`, [id]);
+        return res.json({ mensaje: 'Cita cancelada correctamente' });
     }
+    if (!tokenCliente) return res.status(403).json({ error: 'Token de cancelación requerido' });
+    const update = await dbRun(`UPDATE citas SET estado = 'cancelada' WHERE id = ? AND token_cancelacion = ?`, [id, tokenCliente]);
+    if (update.changes === 0) return res.status(403).json({ error: 'No autorizado para cancelar esta cita' });
+    res.json({ mensaje: 'Cita cancelada correctamente' });
 });
 
 // ─── PANEL ADMINISTRADOR (REPORTES Y AGENDA) ─────────────────────────
-app.get('/api/reportes', verificarAdmin, (req, res) => {
-    const { fecha, barbero_id } = req.query;
-    let queryCitas = `
-        SELECT c.*,
-        (SELECT COUNT(*) FROM citas c2 WHERE c2.telefono = c.telefono AND c2.estado = 'no_asistio') as faltas_cliente
-        FROM citas c WHERE 1=1
-    `;
-    let queryDesglose = `SELECT servicio, COUNT(*) as cantidad, SUM(precio) as total FROM citas WHERE estado = 'completada'`;
-    const paramsCitas = [];
-    const paramsDesglose = [];
-
-    if (fecha) {
-        queryCitas += ` AND c.fecha = ?`;
-        queryDesglose += ` AND fecha = ?`;
-        paramsCitas.push(fecha);
-        paramsDesglose.push(fecha);
+// Filtros opcionales: `fecha` (un día) o `desde` / `hasta` (rango, ambos incluidos) y `barbero_id`
+app.get('/api/reportes', verificarAdmin, async (req, res) => {
+    const { fecha, desde, hasta, barbero_id } = req.query;
+    if ([fecha, desde, hasta].some(f => f && !REGEX_FECHA.test(f))) {
+        return res.status(400).json({ error: 'Fecha inválida' });
     }
 
-    if (barbero_id) {
-        queryCitas += ` AND c.barbero_id = ?`;
-        queryDesglose += ` AND barbero_id = ?`;
-        paramsCitas.push(barbero_id);
-        paramsDesglose.push(barbero_id);
-    }
+    const condiciones = [];
+    const params = [];
+    if (fecha) { condiciones.push(`c.fecha = ?`); params.push(fecha); }
+    if (desde) { condiciones.push(`c.fecha >= ?`); params.push(desde); }
+    if (hasta) { condiciones.push(`c.fecha <= ?`); params.push(hasta); }
+    if (barbero_id) { condiciones.push(`c.barbero_id = ?`); params.push(barbero_id); }
+    const filtro = condiciones.map(c => ` AND ${c}`).join('');
 
-    queryCitas += ` ORDER BY c.fecha ASC, c.hora ASC`;
-    queryDesglose += ` GROUP BY servicio`;
+    const [citas, desglose] = await Promise.all([
+        dbAll(`
+            SELECT c.*,
+            (SELECT COUNT(*) FROM citas c2 WHERE c2.telefono = c.telefono AND c2.estado = 'no_asistio') as faltas_cliente
+            FROM citas c WHERE 1=1${filtro}
+            ORDER BY c.fecha ASC, c.hora ASC`, params),
+        dbAll(`
+            SELECT c.servicio, COUNT(*) as cantidad, SUM(c.precio) as total
+            FROM citas c WHERE c.estado = 'completada'${filtro}
+            GROUP BY c.servicio`, params)
+    ]);
 
-    db.all(queryCitas, paramsCitas, (err, citas) => {
-        if (err) return res.status(500).json({ error: err.message });
-        db.all(queryDesglose, paramsDesglose, (errD, desglose) => {
-            if (errD) return res.status(500).json({ error: errD.message });
-            const rows = desglose || [];
-            res.json({
-                citas: citas || [],
-                desglose: rows,
-                totalGanancias: rows.reduce((acc, curr) => acc + (curr.total || 0), 0),
-                totalCitas: (citas || []).length
-            });
-        });
+    res.json({
+        citas,
+        desglose,
+        totalGanancias: desglose.reduce((acc, curr) => acc + (curr.total || 0), 0),
+        totalCitas: citas.length
     });
 });
 
-app.patch('/api/citas/:id/estado', verificarAdmin, (req, res) => {
+app.patch('/api/citas/:id/estado', verificarAdmin, async (req, res) => {
     const { id } = req.params;
     const { estado } = req.body;
     if (!ESTADOS_VALIDOS.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
-    db.run(`UPDATE citas SET estado = ? WHERE id = ?`, [estado, id], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ mensaje: 'Estado actualizado' });
-    });
+    await dbRun(`UPDATE citas SET estado = ? WHERE id = ?`, [estado, id]);
+    res.json({ mensaje: 'Estado actualizado' });
 });
 
 // ─── BLOQUEO DE DÍAS Y HORAS ─────────────────────────────────────────
-app.get('/api/bloqueos', verificarAdmin, (req, res) => {
-    db.all(`SELECT * FROM dias_bloqueados ORDER BY fecha ASC`, [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
+app.get('/api/bloqueos', verificarAdmin, async (req, res) => {
+    res.json(await dbAll(`SELECT * FROM dias_bloqueados ORDER BY fecha ASC`));
 });
 
-app.post('/api/bloqueos', verificarAdmin, (req, res) => {
+app.post('/api/bloqueos', verificarAdmin, async (req, res) => {
     const { fecha, motivo, forzar } = req.body;
     if (!REGEX_FECHA.test(fecha || '')) return res.status(400).json({ error: 'Fecha requerida' });
     if (motivo && (typeof motivo !== 'string' || motivo.length > 120)) {
@@ -992,44 +968,33 @@ app.post('/api/bloqueos', verificarAdmin, (req, res) => {
     }
     const motivoFinal = motivo ? motivo.trim() : 'No laboral / descanso';
 
-    db.all(`SELECT id, cliente, telefono, hora FROM citas WHERE fecha = ? AND estado != 'cancelada'`, [fecha], (err, citas) => {
-        if (err) return res.status(500).json({ error: err.message });
-        if (citas.length > 0 && !forzar) {
-            return res.status(409).json({
-                advertencia: true,
-                totalCitas: citas.length,
-                citas,
-                mensaje: `Hay ${citas.length} citas agendadas ese día.`
-            });
-        }
-        db.run(`INSERT OR REPLACE INTO dias_bloqueados (fecha, motivo) VALUES (?, ?)`, [fecha, motivoFinal], function(errB) {
-            if (errB) return res.status(500).json({ error: errB.message });
-            if (forzar && citas.length > 0) {
-                db.run(`UPDATE citas SET estado = 'cancelada' WHERE fecha = ? AND estado != 'cancelada'`, [fecha], () => {
-                    res.json({ mensaje: 'Día bloqueado y citas canceladas.' });
-                });
-            } else {
-                res.json({ mensaje: 'Día bloqueado exitosamente.' });
-            }
+    const citas = await dbAll(`SELECT id, cliente, telefono, hora FROM citas WHERE fecha = ? AND estado != 'cancelada'`, [fecha]);
+    if (citas.length > 0 && !forzar) {
+        return res.status(409).json({
+            advertencia: true,
+            totalCitas: citas.length,
+            citas,
+            mensaje: `Hay ${citas.length} citas agendadas ese día.`
         });
-    });
+    }
+    await dbRun(`INSERT OR REPLACE INTO dias_bloqueados (fecha, motivo) VALUES (?, ?)`, [fecha, motivoFinal]);
+    if (forzar && citas.length > 0) {
+        await dbRun(`UPDATE citas SET estado = 'cancelada' WHERE fecha = ? AND estado != 'cancelada'`, [fecha]);
+        return res.json({ mensaje: 'Día bloqueado y citas canceladas.' });
+    }
+    res.json({ mensaje: 'Día bloqueado exitosamente.' });
 });
 
-app.delete('/api/bloqueos/:id', verificarAdmin, (req, res) => {
-    db.run(`DELETE FROM dias_bloqueados WHERE id = ?`, [req.params.id], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ mensaje: 'Día desbloqueado' });
-    });
+app.delete('/api/bloqueos/:id', verificarAdmin, async (req, res) => {
+    await dbRun(`DELETE FROM dias_bloqueados WHERE id = ?`, [req.params.id]);
+    res.json({ mensaje: 'Día desbloqueado' });
 });
 
-app.get('/api/horas-bloqueadas', verificarAdmin, (req, res) => {
-    db.all(`SELECT * FROM horas_bloqueadas ORDER BY fecha ASC, hora ASC`, [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
+app.get('/api/horas-bloqueadas', verificarAdmin, async (req, res) => {
+    res.json(await dbAll(`SELECT * FROM horas_bloqueadas ORDER BY fecha ASC, hora ASC`));
 });
 
-app.post('/api/horas-bloqueadas-rango', verificarAdmin, (req, res) => {
+app.post('/api/horas-bloqueadas-rango', verificarAdmin, async (req, res) => {
     const { fecha, horas, motivo } = req.body;
     if (!REGEX_FECHA.test(fecha || '') || !Array.isArray(horas) || horas.length === 0 || horas.length > 24
         || horas.some(h => !Number.isFinite(horaAMinutos(h)))) {
@@ -1040,21 +1005,15 @@ app.post('/api/horas-bloqueadas-rango', verificarAdmin, (req, res) => {
     }
     const motivoFinal = (motivo && motivo.trim().length > 0) ? motivo.trim() : 'Salida / Compromiso';
 
-    const stmt = db.prepare(`INSERT OR REPLACE INTO horas_bloqueadas (fecha, hora, motivo) VALUES (?, ?, ?)`);
-    horas.forEach(h => {
-        stmt.run(fecha, h, motivoFinal);
-    });
-    stmt.finalize((err) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ mensaje: `${horas.length} horario(s) bloqueado(s) correctamente.` });
-    });
+    for (const h of horas) {
+        await dbRun(`INSERT OR REPLACE INTO horas_bloqueadas (fecha, hora, motivo) VALUES (?, ?, ?)`, [fecha, h, motivoFinal]);
+    }
+    res.json({ mensaje: `${horas.length} horario(s) bloqueado(s) correctamente.` });
 });
 
-app.delete('/api/horas-bloqueadas/:id', verificarAdmin, (req, res) => {
-    db.run(`DELETE FROM horas_bloqueadas WHERE id = ?`, [req.params.id], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ mensaje: 'Horario liberado' });
-    });
+app.delete('/api/horas-bloqueadas/:id', verificarAdmin, async (req, res) => {
+    await dbRun(`DELETE FROM horas_bloqueadas WHERE id = ?`, [req.params.id]);
+    res.json({ mensaje: 'Horario liberado' });
 });
 
 // Cualquier error no previsto en una ruta responde 500 en JSON en lugar de una página HTML
