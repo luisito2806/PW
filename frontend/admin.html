@@ -1469,8 +1469,19 @@
 
     const authHeaders = {
       'Content-Type': 'application/json',
-      'Authorization': token
+      'Authorization': `Bearer ${token}`
     };
+
+    // Escapa texto antes de insertarlo con innerHTML (evita inyección de código desde
+    // datos que escriben los clientes, como su nombre)
+    function escapeHtml(valor) {
+      return String(valor ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
 
     let waTemplateGlobal = '';
     let nombreNegocioGlobal = 'Doo Barber';
@@ -1483,6 +1494,7 @@
     let SERVICIOS_GLOBAL = [];
     let BARBEROS_GLOBAL = [];
     let ULTIMAS_CITAS_REPORTE = [];
+    let CITAS_AGENDA = {};
     let filtroActualAgenda = '';
 
     /* ── CONVERTIDOR INTELIGENTE DE UBICACIÓN GOOGLE MAPS ─── */
@@ -1558,14 +1570,14 @@
       const brandEl = document.getElementById('sidebarBrandName');
       if (partes.length > 1) {
         const ultima = partes.pop();
-        brandEl.innerHTML = `${partes.join(' ')} <span>${ultima}</span>`;
+        brandEl.innerHTML = `${escapeHtml(partes.join(' '))} <span>${escapeHtml(ultima)}</span>`;
       } else {
-        brandEl.innerHTML = `<span>${nombreNegocioGlobal}</span>`;
+        brandEl.innerHTML = `<span>${escapeHtml(nombreNegocioGlobal)}</span>`;
       }
 
       const markEl = document.getElementById('sidebarLogoMark');
       if (logoUrlGlobal) {
-        markEl.innerHTML = `<img src="${logoUrlGlobal}" alt="Logo" class="custom-logo-sidebar" />`;
+        markEl.innerHTML = `<img src="${escapeHtml(logoUrlGlobal)}" alt="Logo" class="custom-logo-sidebar" />`;
       } else {
         markEl.innerHTML = `<div class="logo-dot"></div><div class="logo-dot"></div><div class="logo-dot"></div>`;
       }
@@ -1674,10 +1686,11 @@
         const reagHora = document.getElementById('reagendarHora');
         selDesde.innerHTML = ''; selHasta.innerHTML = ''; wkHora.innerHTML = ''; reagHora.innerHTML = '';
         HORARIOS.forEach(h => {
-          selDesde.innerHTML += `<option value="${h}">${h}</option>`;
-          selHasta.innerHTML += `<option value="${h}">${h}</option>`;
-          wkHora.innerHTML   += `<option value="${h}">${h}</option>`;
-          reagHora.innerHTML += `<option value="${h}">${h}</option>`;
+          const opt = `<option value="${escapeHtml(h)}">${escapeHtml(h)}</option>`;
+          selDesde.innerHTML += opt;
+          selHasta.innerHTML += opt;
+          wkHora.innerHTML   += opt;
+          reagHora.innerHTML += opt;
         });
 
         const fBarbA   = document.getElementById('filtroBarberoAgenda');
@@ -1689,16 +1702,17 @@
         wkBarb.innerHTML   = '';
         reagBarb.innerHTML = '';
         BARBEROS_GLOBAL.forEach(b => {
-          fBarbA.innerHTML   += `<option value="${b.id}">${b.nombre}</option>`;
-          fBarbR.innerHTML   += `<option value="${b.id}">${b.nombre}</option>`;
-          wkBarb.innerHTML   += `<option value="${b.id}">${b.nombre}</option>`;
-          reagBarb.innerHTML += `<option value="${b.id}">${b.nombre}</option>`;
+          const opt = `<option value="${escapeHtml(b.id)}">${escapeHtml(b.nombre)}</option>`;
+          fBarbA.innerHTML   += opt;
+          fBarbR.innerHTML   += opt;
+          wkBarb.innerHTML   += opt;
+          reagBarb.innerHTML += opt;
         });
 
         const wkSrv = document.getElementById('wkServicio');
         wkSrv.innerHTML = '';
         SERVICIOS_GLOBAL.forEach(s => {
-          wkSrv.innerHTML += `<option value="${s.id}">${s.nombre} ($${s.precio})</option>`;
+          wkSrv.innerHTML += `<option value="${escapeHtml(s.id)}">${escapeHtml(s.nombre)} ($${escapeHtml(s.precio)})</option>`;
         });
 
         renderBarberosConfig();
@@ -1799,15 +1813,15 @@
       BARBEROS_GLOBAL.forEach(b => {
         const pal = avatarPalette(b.nombre);
         const avatarHtml = b.foto
-          ? `<img src="${b.foto}" class="avatar" style="width:30px;height:30px;" />`
-          : `<div class="avatar" style="width:30px;height:30px;font-size:11px;background:${pal.bg};color:${pal.fg}">${getInitials(b.nombre)}</div>`;
+          ? `<img src="${escapeHtml(b.foto)}" class="avatar" style="width:30px;height:30px;" />`
+          : `<div class="avatar" style="width:30px;height:30px;font-size:11px;background:${pal.bg};color:${pal.fg}">${escapeHtml(getInitials(b.nombre))}</div>`;
         cont.innerHTML += `
           <div class="chip">
             <div class="chip-info">
               ${avatarHtml}
-              <span><strong>${b.nombre}</strong> · ${b.especialidad}</span>
+              <span><strong>${escapeHtml(b.nombre)}</strong> · ${escapeHtml(b.especialidad)}</span>
             </div>
-            <button class="chip-x" onclick="eliminarBarbero(${b.id})">× Quitar</button>
+            <button class="chip-x" onclick="eliminarBarbero(${Number(b.id)})">× Quitar</button>
           </div>`;
       });
     }
@@ -1823,9 +1837,9 @@
         cont.innerHTML += `
           <div class="chip">
             <div class="chip-info">
-              <span><strong>${s.nombre}</strong> ($${s.precio} MXN) · ${s.duracion}</span>
+              <span><strong>${escapeHtml(s.nombre)}</strong> ($${escapeHtml(s.precio)} MXN) · ${escapeHtml(s.duracion)}</span>
             </div>
-            <button class="chip-x" onclick="eliminarServicio(${s.id})">× Quitar</button>
+            <button class="chip-x" onclick="eliminarServicio(${Number(s.id)})">× Quitar</button>
           </div>`;
       });
     }
@@ -1914,7 +1928,7 @@
             <div style="color:var(--warn); font-weight:600; font-size:13px; margin-bottom:10px;">
               📱 Escanea este código QR desde el WhatsApp de la barbería:
             </div>
-            <img src="${data.qr}" style="width:190px; height:190px; border-radius:12px; border:4px solid #fff;" />
+            <img src="${escapeHtml(data.qr)}" style="width:190px; height:190px; border-radius:12px; border:4px solid #fff;" />
             <div style="margin-top:8px;">
               <button class="chip-x" onclick="verificarEstadoWhatsApp()">🔄 Actualizar Estado</button>
             </div>`;
@@ -2054,6 +2068,7 @@
 
         const tbody = document.getElementById('tablaCitas');
         tbody.innerHTML = '';
+        CITAS_AGENDA = {};
 
         if (!data.citas || data.citas.length === 0) {
           tbody.innerHTML = `
@@ -2074,32 +2089,33 @@
           const pal       = avatarPalette(cita.cliente || 'X');
           const initials  = getInitials(cita.cliente || 'XX');
           const waLink    = buildWaLink(cita);
-          const safeClientName = (cita.cliente || '').replace(/'/g, "\\'");
+          const idCita    = Number(cita.id);
+          CITAS_AGENDA[idCita] = cita;
           const tagFaltas = cita.faltas_cliente > 0
-            ? `<span class="faltas-tag">⚠️ ${cita.faltas_cliente} falta(s)</span>`
+            ? `<span class="faltas-tag">⚠️ ${Number(cita.faltas_cliente)} falta(s)</span>`
             : '';
 
           const btnCobrar = (!esCom && !esCan && !esFalto)
-            ? `<button class="btn-cobrar" onclick="cambiarEstado(${cita.id},'completada')">
+            ? `<button class="btn-cobrar" onclick="cambiarEstado(${idCita},'completada')">
                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                  Cobrar
                </button>
-               <button class="btn-mover" onclick="abrirModalReagendar(${cita.id}, '${safeClientName}', '${cita.fecha}', '${cita.hora}', '${cita.barbero_id || 1}')">
+               <button class="btn-mover" onclick="abrirModalReagendar(${idCita})">
                  📅 Mover
                </button>
-               <button class="btn-falto" onclick="cambiarEstado(${cita.id},'no_asistio')">
+               <button class="btn-falto" onclick="cambiarEstado(${idCita},'no_asistio')">
                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
                  Faltó
                </button>`
             : ((esCom || esFalto)
-                ? `<button class="btn-revertir" onclick="cambiarEstado(${cita.id},'pendiente')">
+                ? `<button class="btn-revertir" onclick="cambiarEstado(${idCita},'pendiente')">
                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
                      Revertir
                    </button>`
                 : '');
 
           const btnCancelar = !esCan
-            ? `<button class="btn-cancelar" onclick="eliminarCita(${cita.id})">
+            ? `<button class="btn-cancelar" onclick="eliminarCita(${idCita})">
                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                  Cancelar
                </button>`
@@ -2107,25 +2123,25 @@
 
           tbody.innerHTML += `
             <tr>
-              <td><span class="time-cell">${cita.hora}</span><br><span style="font-size:11.5px;color:var(--text3)">${formatDateShort(cita.fecha)}</span></td>
+              <td><span class="time-cell">${escapeHtml(cita.hora)}</span><br><span style="font-size:11.5px;color:var(--text3)">${escapeHtml(formatDateShort(cita.fecha))}</span></td>
               <td>
                 <div class="client-cell">
-                  <div class="avatar" style="background:${pal.bg};color:${pal.fg}">${initials}</div>
+                  <div class="avatar" style="background:${pal.bg};color:${pal.fg}">${escapeHtml(initials)}</div>
                   <div class="client-info">
-                    <span class="client-name">${cita.cliente}</span>
-                    <span class="client-phone">${cita.telefono} ${tagFaltas}</span>
+                    <span class="client-name">${escapeHtml(cita.cliente)}</span>
+                    <span class="client-phone">${escapeHtml(cita.telefono)} ${tagFaltas}</span>
                   </div>
                 </div>
               </td>
-              <td><strong style="color:var(--text)">${cita.barbero_nombre || 'General'}</strong></td>
-              <td>${cita.servicio}</td>
-              <td><span class="precio-cell">$${cita.precio}</span></td>
-              <td><span class="badge badge-${estado}">${estado.replace('_', ' ')}</span></td>
+              <td><strong style="color:var(--text)">${escapeHtml(cita.barbero_nombre || 'General')}</strong></td>
+              <td>${escapeHtml(cita.servicio)}</td>
+              <td><span class="precio-cell">$${escapeHtml(cita.precio)}</span></td>
+              <td><span class="badge badge-${escapeHtml(estado)}">${escapeHtml(estado.replace('_', ' '))}</span></td>
               <td>
                 <div class="actions">
                   ${btnCobrar}
                   ${btnCancelar}
-                  <a class="btn-wa" href="${waLink}" target="_blank" rel="noopener">
+                  <a class="btn-wa" href="${escapeHtml(waLink)}" target="_blank" rel="noopener">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z"/></svg>
                     WA
                   </a>
@@ -2156,10 +2172,8 @@
       const fecha      = document.getElementById('wkFecha').value;
       const hora       = document.getElementById('wkHora').value;
 
-      const srvObj = SERVICIOS_GLOBAL.find(s => String(s.id) === String(srvId)) || { nombre: 'Corte Clásico', precio: 150 };
-
-      if (!cliente || telefono.length !== 10 || !fecha) {
-        return alert('Por favor completa el nombre, teléfono de 10 dígitos y fecha.');
+      if (!cliente || telefono.length !== 10 || !fecha || !srvId) {
+        return alert('Por favor completa el nombre, teléfono de 10 dígitos, servicio y fecha.');
       }
 
       try {
@@ -2169,8 +2183,7 @@
           body: JSON.stringify({
             cliente,
             telefono,
-            servicio: srvObj.nombre,
-            precio: srvObj.precio,
+            servicio_id: srvId,
             fecha,
             hora,
             barbero_id
@@ -2191,7 +2204,13 @@
     }
 
     /* ── REAGENDAR / MOVER CITA MODAL FUNCTIONS ───────────── */
-    function abrirModalReagendar(id, cliente, fechaActual, horaActual, barberoIdActual) {
+    function abrirModalReagendar(id) {
+      const cita = CITAS_AGENDA[id];
+      if (!cita) return;
+      const cliente = cita.cliente || '';
+      const fechaActual = cita.fecha;
+      const horaActual = cita.hora;
+      const barberoIdActual = cita.barbero_id || 1;
       document.getElementById('reagendarCitaId').value = id;
       document.getElementById('reagendarSubtitulo').textContent = `Cliente: ${cliente} (Actual: ${formatDateShort(fechaActual)} · ${horaActual})`;
       document.getElementById('reagendarFecha').value = fechaActual;
@@ -2302,10 +2321,10 @@
           contDesglose.innerHTML += `
             <div class="service-card">
               <div class="service-top">
-                <span class="service-name">${item.servicio}</span>
+                <span class="service-name">${escapeHtml(item.servicio)}</span>
                 <div class="service-meta">
-                  <span>Total: <strong>$${item.total} MXN</strong></span>
-                  <span class="service-count-badge">${item.cantidad} cita${item.cantidad !== 1 ? 's' : ''}</span>
+                  <span>Total: <strong>$${escapeHtml(item.total)} MXN</strong></span>
+                  <span class="service-count-badge">${Number(item.cantidad)} cita${item.cantidad !== 1 ? 's' : ''}</span>
                 </div>
               </div>
               <div class="progress-bar-wrap">
@@ -2323,14 +2342,20 @@
         return alert('No hay citas en el filtro actual para exportar.');
       }
       const encabezados = ['ID', 'Fecha', 'Hora', 'Cliente', 'Telefono', 'Barbero', 'Servicio', 'Precio', 'Estado'];
+      // Un texto que empieza con = + - @ se ejecutaría como fórmula al abrir el CSV en Excel
+      const celdaCSV = (valor) => {
+        let v = String(valor ?? '');
+        if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;
+        return `"${v.replace(/"/g, '""')}"`;
+      };
       const filas = ULTIMAS_CITAS_REPORTE.map(c => [
         c.id,
         c.fecha,
-        c.hora,
-        `"${(c.cliente || '').replace(/"/g, '""')}"`,
-        c.telefono,
-        `"${(c.barbero_nombre || 'General').replace(/"/g, '""')}"`,
-        `"${(c.servicio || '').replace(/"/g, '""')}"`,
+        celdaCSV(c.hora),
+        celdaCSV(c.cliente),
+        celdaCSV(c.telefono),
+        celdaCSV(c.barbero_nombre || 'General'),
+        celdaCSV(c.servicio),
         c.precio,
         c.estado
       ]);
@@ -2385,9 +2410,9 @@
             <div class="chip">
               <div class="chip-info">
                 <div class="chip-dot" style="background:var(--warn)"></div>
-                <span><strong>${formatDateShort(h.fecha)}</strong> · ${h.hora}${h.motivo ? ` — ${h.motivo}` : ''}</span>
+                <span><strong>${escapeHtml(formatDateShort(h.fecha))}</strong> · ${escapeHtml(h.hora)}${h.motivo ? ` — ${escapeHtml(h.motivo)}` : ''}</span>
               </div>
-              <button class="chip-x" onclick="desbloquearHora(${h.id})">× Quitar</button>
+              <button class="chip-x" onclick="desbloquearHora(${Number(h.id)})">× Quitar</button>
             </div>`;
         });
       } catch (err) {
@@ -2454,9 +2479,9 @@
             <div class="chip">
               <div class="chip-info">
                 <div class="chip-dot"></div>
-                <span><strong>${formatDateShort(b.fecha)}</strong>${b.motivo ? ` — ${b.motivo}` : ''}</span>
+                <span><strong>${escapeHtml(formatDateShort(b.fecha))}</strong>${b.motivo ? ` — ${escapeHtml(b.motivo)}` : ''}</span>
               </div>
-              <button class="chip-x" onclick="desbloquearDia(${b.id})">× Quitar</button>
+              <button class="chip-x" onclick="desbloquearDia(${Number(b.id)})">× Quitar</button>
             </div>`;
         });
       } catch (error) {
@@ -2521,7 +2546,10 @@
       cargarReporte('');
     }
 
-    function cerrarSesion() {
+    async function cerrarSesion() {
+      try {
+        await fetch(`${API_URL}/api/logout`, { method: 'POST', headers: authHeaders });
+      } catch {}
       localStorage.removeItem('adminToken');
       window.location.href = 'login.html';
     }

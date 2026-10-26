@@ -10,8 +10,21 @@ const pino = require('pino');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
-app.use(express.json({ limit: '5mb' }));
+// El frontend se sirve desde este mismo servidor, así que CORS solo se habilita
+// si se define CORS_ORIGIN (ej. CORS_ORIGIN=https://mi-dominio.com)
+if (process.env.CORS_ORIGIN) {
+    app.use(cors({ origin: process.env.CORS_ORIGIN.split(',').map(o => o.trim()) }));
+}
+// Detrás de un proxy (Render, Railway, Nginx...) define TRUST_PROXY=1 para que req.ip sea la IP real
+if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1);
+
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+});
+app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '../frontend')));
 
@@ -234,26 +247,163 @@ function generarHorarios(inicio = 10, fin = 19) {
     return lista;
 }
 
+// ─── VALIDACIONES ────────────────────────────────────────────────────
+const REGEX_FECHA = /^\d{4}-\d{2}-\d{2}$/;
+const ESTADOS_VALIDOS = ['pendiente', 'completada', 'cancelada', 'no_asistio'];
+const MAX_IMAGEN_CHARS = 300 * 1024; // ~300 KB en base64 (el frontend las comprime a 150x150)
+
+function textoValido(valor, max) {
+    return typeof valor === 'string' && valor.trim().length > 0 && valor.trim().length <= max;
+}
+
+// Solo se aceptan imágenes como data URL (las que genera el compresor del panel) o vacío
+function imagenValida(valor) {
+    if (valor === undefined || valor === null || valor === '') return true;
+    return typeof valor === 'string'
+        && valor.length <= MAX_IMAGEN_CHARS
+        && /^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/.test(valor);
+}
+
+function horaValida(valor) {
+    const n = Number(valor);
+    return Number.isInteger(n) && n >= 0 && n <= 23;
+}
+
+// Claves que el panel puede modificar y cómo se valida cada una
+const CONFIG_EDITABLE = {
+    nombre_negocio: v => textoValido(v, 60),
+    logo_url:       v => imagenValida(v),
+    wa_template:    v => textoValido(v, 1000),
+    hora_apertura:  horaValida,
+    hora_cierre:    horaValida,
+    maps_url:       v => v === '' || (typeof v === 'string' && v.length <= 1000 && /^https?:\/\//i.test(v)),
+    max_faltas:     v => Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 50
+};
+
 // ─── AUTENTICACIÓN ───────────────────────────────────────────────────
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
-const ADMIN_TOKEN = 'acceso-autorizado-barberia';
+// La contraseña se guarda como hash (scrypt) en la tabla `seguridad`.
+// - Si existe ADMIN_PASSWORD en el entorno, se usa y reemplaza el hash guardado.
+// - Si no existe y no hay hash, se genera una contraseña aleatoria y se imprime UNA vez en consola.
+const SESION_DURACION_MS = 7 * 24 * 60 * 60 * 1000; // 7 días
+
+function hashPassword(password) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+    return `${salt}:${hash}`;
+}
+
+function verificarPassword(password, guardado) {
+    if (!guardado || typeof password !== 'string') return false;
+    const [salt, hash] = guardado.split(':');
+    const calculado = crypto.scryptSync(password, salt, 64);
+    const esperado = Buffer.from(hash, 'hex');
+    return esperado.length === calculado.length && crypto.timingSafeEqual(esperado, calculado);
+}
+
+function hashToken(token) {
+    return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+db.serialize(() => {
+    db.run(`CREATE TABLE IF NOT EXISTS seguridad (
+        clave TEXT PRIMARY KEY,
+        valor TEXT
+    )`);
+    db.run(`CREATE TABLE IF NOT EXISTS sesiones (
+        token_hash TEXT PRIMARY KEY,
+        expira INTEGER NOT NULL
+    )`);
+    db.run(`DELETE FROM sesiones WHERE expira < ?`, [Date.now()]);
+
+    db.get(`SELECT valor FROM seguridad WHERE clave = 'admin_password_hash'`, [], (err, row) => {
+        if (err) return console.error('Error leyendo seguridad:', err.message);
+        if (process.env.ADMIN_PASSWORD) {
+            db.run(`INSERT OR REPLACE INTO seguridad (clave, valor) VALUES ('admin_password_hash', ?)`,
+                [hashPassword(process.env.ADMIN_PASSWORD)]);
+        } else if (!row) {
+            const generada = crypto.randomBytes(9).toString('base64url');
+            db.run(`INSERT INTO seguridad (clave, valor) VALUES ('admin_password_hash', ?)`, [hashPassword(generada)]);
+            console.log('──────────────────────────────────────────────────────────');
+            console.log(`🔐 Contraseña de administrador generada: ${generada}`);
+            console.log('   Guárdala ahora; no se volverá a mostrar.');
+            console.log('   Para cambiarla, arranca con ADMIN_PASSWORD="nueva" node app.js');
+            console.log('──────────────────────────────────────────────────────────');
+        }
+    });
+});
+
+// Límite de intentos de login por IP: 5 intentos fallidos → bloqueo de 15 minutos
+const MAX_INTENTOS = 5;
+const BLOQUEO_MS = 15 * 60 * 1000;
+const intentosLogin = new Map();
+
+function obtenerToken(req) {
+    const header = req.headers['authorization'] || '';
+    return header.startsWith('Bearer ') ? header.slice(7) : '';
+}
+
+function esSesionValida(token, cb) {
+    if (!token) return cb(false);
+    db.get(`SELECT expira FROM sesiones WHERE token_hash = ?`, [hashToken(token)], (err, row) => {
+        cb(!err && !!row && row.expira > Date.now());
+    });
+}
 
 app.post('/api/login', (req, res) => {
-    const { password } = req.body;
-    if (password === ADMIN_PASSWORD) {
-        res.json({ exito: true, token: ADMIN_TOKEN });
-    } else {
-        res.status(401).json({ error: 'Contraseña incorrecta' });
+    const ip = req.ip;
+    const registro = intentosLogin.get(ip);
+    if (registro && registro.bloqueadoHasta > Date.now()) {
+        const minutos = Math.ceil((registro.bloqueadoHasta - Date.now()) / 60000);
+        return res.status(429).json({ error: `Demasiados intentos. Intenta de nuevo en ${minutos} min.` });
     }
+
+    const { password } = req.body;
+    db.get(`SELECT valor FROM seguridad WHERE clave = 'admin_password_hash'`, [], (err, row) => {
+        if (err || !row) return res.status(500).json({ error: 'Error de autenticación' });
+
+        if (!verificarPassword(password, row.valor)) {
+            // Si ya pasó un bloqueo anterior, el conteo empieza de cero
+            const bloqueoVencido = registro && registro.bloqueadoHasta && registro.bloqueadoHasta <= Date.now();
+            const intentos = (bloqueoVencido ? 0 : (registro?.intentos || 0)) + 1;
+            intentosLogin.set(ip, {
+                intentos,
+                bloqueadoHasta: intentos >= MAX_INTENTOS ? Date.now() + BLOQUEO_MS : 0
+            });
+            return res.status(401).json({ error: 'Contraseña incorrecta' });
+        }
+
+        intentosLogin.delete(ip);
+        const token = crypto.randomBytes(32).toString('hex');
+        db.run(`INSERT INTO sesiones (token_hash, expira) VALUES (?, ?)`,
+            [hashToken(token), Date.now() + SESION_DURACION_MS],
+            (errS) => {
+                if (errS) return res.status(500).json({ error: 'No se pudo iniciar sesión' });
+                res.json({ exito: true, token });
+            });
+    });
+});
+
+app.post('/api/logout', (req, res) => {
+    const token = obtenerToken(req);
+    if (!token) return res.json({ mensaje: 'Sesión cerrada' });
+    db.run(`DELETE FROM sesiones WHERE token_hash = ?`, [hashToken(token)], () => {
+        res.json({ mensaje: 'Sesión cerrada' });
+    });
 });
 
 function verificarAdmin(req, res, next) {
-    const authHeader = req.headers['authorization'];
-    if (authHeader === ADMIN_TOKEN) {
+    esSesionValida(obtenerToken(req), (valida) => {
+        if (valida) return next();
+        res.status(401).json({ error: 'Sesión inválida o expirada' });
+    });
+}
+
+// Para rutas públicas que dan permisos extra al admin (agendar sin límite de faltas, cancelar sin token)
+function detectarAdmin(req, res, next) {
+    esSesionValida(obtenerToken(req), (valida) => {
+        req.esAdmin = valida;
         next();
-    } else {
-        res.status(403).json({ error: 'Acceso no autorizado' });
-    }
+    });
 }
 
 // ─── ENDPOINTS WHATSAPP ──────────────────────────────────────────────
@@ -311,10 +461,20 @@ app.get('/api/catalogo', (req, res) => {
 // ─── CRUD SERVICIOS ──────────────────────────────────────────────────
 app.post('/api/servicios', verificarAdmin, (req, res) => {
     const { nombre, descripcion, precio, duracion } = req.body;
-    if (!nombre || precio === undefined) return res.status(400).json({ error: 'Nombre y precio requeridos' });
+    if (!textoValido(nombre, 80)) return res.status(400).json({ error: 'Nombre requerido (máx. 80 caracteres)' });
+    const precioNum = Number(precio);
+    if (!Number.isFinite(precioNum) || precioNum < 0 || precioNum > 100000) {
+        return res.status(400).json({ error: 'Precio inválido' });
+    }
+    if (descripcion && (typeof descripcion !== 'string' || descripcion.length > 200)) {
+        return res.status(400).json({ error: 'Descripción inválida (máx. 200 caracteres)' });
+    }
+    if (duracion && (typeof duracion !== 'string' || duracion.length > 20)) {
+        return res.status(400).json({ error: 'Duración inválida' });
+    }
     db.run(
         `INSERT INTO servicios (nombre, descripcion, precio, duracion, activo) VALUES (?, ?, ?, ?, 1)`,
-        [nombre.trim(), (descripcion || '').trim(), Number(precio), duracion || '60 min'],
+        [nombre.trim(), (descripcion || '').trim(), precioNum, (duracion || '60 min').trim()],
         function(err) {
             if (err) return res.status(500).json({ error: err.message });
             res.json({ id: this.lastID, mensaje: 'Servicio agregado' });
@@ -332,7 +492,11 @@ app.delete('/api/servicios/:id', verificarAdmin, (req, res) => {
 // ─── CRUD BARBEROS ───────────────────────────────────────────────────
 app.post('/api/barberos', verificarAdmin, (req, res) => {
     const { nombre, especialidad, foto } = req.body;
-    if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
+    if (!textoValido(nombre, 60)) return res.status(400).json({ error: 'Nombre requerido (máx. 60 caracteres)' });
+    if (especialidad && (typeof especialidad !== 'string' || especialidad.length > 60)) {
+        return res.status(400).json({ error: 'Especialidad inválida (máx. 60 caracteres)' });
+    }
+    if (!imagenValida(foto)) return res.status(400).json({ error: 'Foto inválida' });
     db.run(
         `INSERT INTO barberos (nombre, especialidad, foto, activo) VALUES (?, ?, ?, 1)`,
         [nombre.trim(), (especialidad || 'Barbero').trim(), foto || ''],
@@ -364,7 +528,14 @@ app.get('/api/config', verificarAdmin, (req, res) => {
 app.put('/api/config', verificarAdmin, (req, res) => {
     const { clave, valor } = req.body;
     if (!clave || valor === undefined) return res.status(400).json({ error: 'Faltan datos' });
-    db.run(`INSERT OR REPLACE INTO configuracion (clave, valor) VALUES (?, ?)`, [clave, String(valor)], function(err) {
+    if (!Object.prototype.hasOwnProperty.call(CONFIG_EDITABLE, clave)) {
+        return res.status(400).json({ error: 'Clave de configuración no permitida' });
+    }
+    if (!CONFIG_EDITABLE[clave](valor)) {
+        return res.status(400).json({ error: `Valor inválido para ${clave}` });
+    }
+    const valorFinal = typeof valor === 'string' ? valor.trim() : String(valor);
+    db.run(`INSERT OR REPLACE INTO configuracion (clave, valor) VALUES (?, ?)`, [clave, valorFinal], function(err) {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ mensaje: 'Configuración actualizada' });
     });
@@ -414,9 +585,13 @@ app.get('/api/disponibilidad', (req, res) => {
 });
 
 // ─── VERIFICAR ESTADO DE TICKET ACTIVO EN EL CELULAR DEL CLIENTE ─────
+// Requiere el token de cancelación que recibió el cliente al agendar, para que
+// nadie pueda consultar citas ajenas probando IDs consecutivos.
 app.get('/api/citas/:id/ticket-status', (req, res) => {
     const { id } = req.params;
-    db.get(`SELECT id, cliente, servicio, precio, fecha, hora, estado, barbero_nombre FROM citas WHERE id = ?`, [id], (err, row) => {
+    const tokenCliente = String(req.query.token || '');
+    if (!tokenCliente) return res.json({ activa: false });
+    db.get(`SELECT id, cliente, servicio, precio, fecha, hora, estado, barbero_nombre FROM citas WHERE id = ? AND token_cancelacion = ?`, [id, tokenCliente], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!row) return res.json({ activa: false });
         const activa = (row.estado === 'pendiente');
@@ -425,100 +600,120 @@ app.get('/api/citas/:id/ticket-status', (req, res) => {
 });
 
 // ─── AGENDAR CITA ────────────────────────────────────────────────────
-app.post('/api/citas', (req, res) => {
-    const { cliente, telefono, servicio, precio, hora, fecha, barbero_id } = req.body;
-    const esAdmin = req.headers['authorization'] === ADMIN_TOKEN;
+// El precio y el nombre del servicio se toman de la base de datos a partir de
+// servicio_id; nunca se confía en lo que manda el navegador.
+app.post('/api/citas', detectarAdmin, (req, res) => {
+    const { telefono, servicio_id, hora, fecha, barbero_id } = req.body;
+    const cliente = typeof req.body.cliente === 'string' ? req.body.cliente.trim() : '';
+    const esAdmin = req.esAdmin;
 
+    if (!textoValido(cliente, 80)) {
+        return res.status(400).json({ error: 'Ingresa un nombre válido (máx. 80 caracteres).' });
+    }
     const regexTelefono = /^[0-9]{10}$/;
     if (!regexTelefono.test(telefono)) {
         return res.status(400).json({ error: 'El número debe ser de 10 dígitos.' });
     }
+    if (!REGEX_FECHA.test(fecha || '')) {
+        return res.status(400).json({ error: 'Fecha inválida.' });
+    }
 
-    db.get(`SELECT valor FROM configuracion WHERE clave = 'max_faltas'`, [], (errConf, rowMax) => {
-        const maxFaltas = Number(rowMax?.valor || 2);
+    db.get(`SELECT nombre, precio FROM servicios WHERE id = ? AND activo = 1`, [servicio_id], (errSrv, srv) => {
+        if (errSrv) return res.status(500).json({ error: errSrv.message });
+        if (!srv) return res.status(400).json({ error: 'El servicio seleccionado no está disponible.' });
 
-        db.get(
-            `SELECT COUNT(*) as faltas FROM citas WHERE telefono = ? AND estado = 'no_asistio'`,
-            [telefono],
-            (errF, rowFaltas) => {
-                if (!esAdmin && (rowFaltas?.faltas || 0) >= maxFaltas) {
-                    return res.status(403).json({
-                        error: 'Tu número registra inasistencias previas sin aviso. Contáctanos directamente para agendar.'
-                    });
-                }
+        db.all(`SELECT * FROM configuracion`, [], (errConf, confRows) => {
+            const conf = {};
+            (confRows || []).forEach(r => { conf[r.clave] = r.valor; });
+            const maxFaltas = Number(conf.max_faltas || 2);
 
-                db.get(`SELECT motivo FROM dias_bloqueados WHERE fecha = ?`, [fecha], (err, bloqueado) => {
-                    if (err) return res.status(500).json({ error: err.message });
-                    if (bloqueado) return res.status(400).json({ error: `Día no laboral: ${bloqueado.motivo}` });
+            if (!generarHorarios(conf.hora_apertura || 10, conf.hora_cierre || 19).includes(hora)) {
+                return res.status(400).json({ error: 'Horario inválido.' });
+            }
 
-                    db.get(`SELECT id FROM horas_bloqueadas WHERE fecha = ? AND hora = ?`, [fecha, hora], (errH, hBloq) => {
-                        if (errH) return res.status(500).json({ error: errH.message });
-                        if (hBloq) return res.status(409).json({ error: 'Horario no disponible por salida o compromiso del barbero.' });
+            db.get(
+                `SELECT COUNT(*) as faltas FROM citas WHERE telefono = ? AND estado = 'no_asistio'`,
+                [telefono],
+                (errF, rowFaltas) => {
+                    if (!esAdmin && (rowFaltas?.faltas || 0) >= maxFaltas) {
+                        return res.status(403).json({
+                            error: 'Tu número registra inasistencias previas sin aviso. Contáctanos directamente para agendar.'
+                        });
+                    }
 
-                        db.all(`SELECT * FROM barberos WHERE activo = 1`, [], (errB, barberos) => {
-                            const listaBarberos = (barberos && barberos.length > 0)
-                                ? barberos
-                                : [{ id: 1, nombre: 'Barbero Principal' }];
+                    db.get(`SELECT motivo FROM dias_bloqueados WHERE fecha = ?`, [fecha], (err, bloqueado) => {
+                        if (err) return res.status(500).json({ error: err.message });
+                        if (bloqueado) return res.status(400).json({ error: `Día no laboral: ${bloqueado.motivo}` });
 
-                            db.all(
-                                `SELECT barbero_id FROM citas WHERE fecha = ? AND hora = ? AND estado != 'cancelada'`,
-                                [fecha, hora],
-                                (errC, citasEnHora) => {
-                                    if (errC) return res.status(500).json({ error: errC.message });
-                                    const ocupadosIds = (citasEnHora || []).map(c => Number(c.barbero_id));
-                                    let barberoElegido = null;
+                        db.get(`SELECT id FROM horas_bloqueadas WHERE fecha = ? AND hora = ?`, [fecha, hora], (errH, hBloq) => {
+                            if (errH) return res.status(500).json({ error: errH.message });
+                            if (hBloq) return res.status(409).json({ error: 'Horario no disponible por salida o compromiso del barbero.' });
 
-                                    if (barbero_id && barbero_id !== 'cualquiera') {
-                                        if (ocupadosIds.includes(Number(barbero_id))) {
-                                            return res.status(409).json({ error: 'Este barbero ya tiene una cita en ese horario.' });
+                            db.all(`SELECT * FROM barberos WHERE activo = 1`, [], (errB, barberos) => {
+                                const listaBarberos = (barberos && barberos.length > 0)
+                                    ? barberos
+                                    : [{ id: 1, nombre: 'Barbero Principal' }];
+
+                                db.all(
+                                    `SELECT barbero_id FROM citas WHERE fecha = ? AND hora = ? AND estado != 'cancelada'`,
+                                    [fecha, hora],
+                                    (errC, citasEnHora) => {
+                                        if (errC) return res.status(500).json({ error: errC.message });
+                                        const ocupadosIds = (citasEnHora || []).map(c => Number(c.barbero_id));
+                                        let barberoElegido = null;
+
+                                        if (barbero_id && barbero_id !== 'cualquiera') {
+                                            if (ocupadosIds.includes(Number(barbero_id))) {
+                                                return res.status(409).json({ error: 'Este barbero ya tiene una cita en ese horario.' });
+                                            }
+                                            barberoElegido = listaBarberos.find(b => Number(b.id) === Number(barbero_id)) || listaBarberos[0];
+                                        } else {
+                                            const disponibles = listaBarberos.filter(b => !ocupadosIds.includes(Number(b.id)));
+                                            if (disponibles.length === 0) {
+                                                return res.status(409).json({ error: 'El horario seleccionado ya fue tomado.' });
+                                            }
+                                            barberoElegido = disponibles[0];
                                         }
-                                        barberoElegido = listaBarberos.find(b => Number(b.id) === Number(barbero_id)) || listaBarberos[0];
-                                    } else {
-                                        const disponibles = listaBarberos.filter(b => !ocupadosIds.includes(Number(b.id)));
-                                        if (disponibles.length === 0) {
-                                            return res.status(409).json({ error: 'El horario seleccionado ya fue tomado.' });
-                                        }
-                                        barberoElegido = disponibles[0];
+
+                                        const tokenCancelacion = crypto.randomBytes(12).toString('hex');
+                                        const query = `INSERT INTO citas (cliente, telefono, servicio, precio, hora, fecha, estado, barbero_id, barbero_nombre, token_cancelacion)
+                                                       VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?, ?)`;
+
+                                        db.run(
+                                            query,
+                                            [cliente, telefono, srv.nombre, srv.precio, hora, fecha, barberoElegido.id, barberoElegido.nombre, tokenCancelacion],
+                                            function(insErr) {
+                                                if (insErr) return res.status(500).json({ error: insErr.message });
+
+                                                const citaCreada = {
+                                                    id: this.lastID,
+                                                    cliente,
+                                                    telefono,
+                                                    servicio: srv.nombre,
+                                                    precio: srv.precio,
+                                                    hora,
+                                                    fecha,
+                                                    barbero_nombre: barberoElegido.nombre
+                                                };
+
+                                                enviarWhatsAppAutomatico(citaCreada);
+
+                                                res.json({
+                                                    mensaje: 'Cita agendada',
+                                                    id: this.lastID,
+                                                    barbero_nombre: barberoElegido.nombre,
+                                                    token_cancelacion: tokenCancelacion
+                                                });
+                                            }
+                                        );
                                     }
-
-                                    const tokenCancelacion = crypto.randomBytes(12).toString('hex');
-                                    const query = `INSERT INTO citas (cliente, telefono, servicio, precio, hora, fecha, estado, barbero_id, barbero_nombre, token_cancelacion)
-                                                   VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?, ?)`;
-
-                                    db.run(
-                                        query,
-                                        [cliente, telefono, servicio, precio, hora, fecha, barberoElegido.id, barberoElegido.nombre, tokenCancelacion],
-                                        function(insErr) {
-                                            if (insErr) return res.status(500).json({ error: insErr.message });
-
-                                            const citaCreada = {
-                                                id: this.lastID,
-                                                cliente,
-                                                telefono,
-                                                servicio,
-                                                precio,
-                                                hora,
-                                                fecha,
-                                                barbero_nombre: barberoElegido.nombre
-                                            };
-
-                                            enviarWhatsAppAutomatico(citaCreada);
-
-                                            res.json({
-                                                mensaje: 'Cita agendada',
-                                                id: this.lastID,
-                                                barbero_nombre: barberoElegido.nombre,
-                                                token_cancelacion: tokenCancelacion
-                                            });
-                                        }
-                                    );
-                                }
-                            );
+                                );
+                            });
                         });
                     });
-                });
-            }
-        );
+                }
+            );
+        });
     });
 });
 
@@ -529,6 +724,9 @@ app.patch('/api/citas/:id/reagendar', verificarAdmin, (req, res) => {
 
     if (!fecha || !hora) {
         return res.status(400).json({ error: 'Fecha y hora son requeridas para reagendar.' });
+    }
+    if (!REGEX_FECHA.test(fecha) || typeof hora !== 'string' || hora.length > 10) {
+        return res.status(400).json({ error: 'Fecha u hora inválida.' });
     }
 
     db.get(`SELECT * FROM citas WHERE id = ?`, [id], (errCita, citaActual) => {
@@ -584,10 +782,10 @@ app.patch('/api/citas/:id/reagendar', verificarAdmin, (req, res) => {
 });
 
 // ─── CANCELAR CITA ───────────────────────────────────────────────────
-app.delete('/api/citas/:id', (req, res) => {
+app.delete('/api/citas/:id', detectarAdmin, (req, res) => {
     const { id } = req.params;
     const tokenCliente = req.query.token;
-    const esAdmin = req.headers['authorization'] === ADMIN_TOKEN;
+    const esAdmin = req.esAdmin;
 
     if (esAdmin) {
         db.run(`UPDATE citas SET estado = 'cancelada' WHERE id = ?`, [id], function(err) {
@@ -651,6 +849,7 @@ app.get('/api/reportes', verificarAdmin, (req, res) => {
 app.patch('/api/citas/:id/estado', verificarAdmin, (req, res) => {
     const { id } = req.params;
     const { estado } = req.body;
+    if (!ESTADOS_VALIDOS.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
     db.run(`UPDATE citas SET estado = ? WHERE id = ?`, [estado, id], function(err) {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ mensaje: 'Estado actualizado' });
@@ -667,7 +866,10 @@ app.get('/api/bloqueos', verificarAdmin, (req, res) => {
 
 app.post('/api/bloqueos', verificarAdmin, (req, res) => {
     const { fecha, motivo, forzar } = req.body;
-    if (!fecha) return res.status(400).json({ error: 'Fecha requerida' });
+    if (!REGEX_FECHA.test(fecha || '')) return res.status(400).json({ error: 'Fecha requerida' });
+    if (motivo && (typeof motivo !== 'string' || motivo.length > 120)) {
+        return res.status(400).json({ error: 'Motivo inválido (máx. 120 caracteres)' });
+    }
     const motivoFinal = motivo ? motivo.trim() : 'No laboral / descanso';
 
     db.all(`SELECT id, cliente, telefono, hora FROM citas WHERE fecha = ? AND estado != 'cancelada'`, [fecha], (err, citas) => {
@@ -709,8 +911,12 @@ app.get('/api/horas-bloqueadas', verificarAdmin, (req, res) => {
 
 app.post('/api/horas-bloqueadas-rango', verificarAdmin, (req, res) => {
     const { fecha, horas, motivo } = req.body;
-    if (!fecha || !Array.isArray(horas) || horas.length === 0) {
+    if (!REGEX_FECHA.test(fecha || '') || !Array.isArray(horas) || horas.length === 0 || horas.length > 24
+        || horas.some(h => typeof h !== 'string' || h.length > 10)) {
         return res.status(400).json({ error: 'Fecha y horas requeridas' });
+    }
+    if (motivo && (typeof motivo !== 'string' || motivo.length > 120)) {
+        return res.status(400).json({ error: 'Motivo inválido (máx. 120 caracteres)' });
     }
     const motivoFinal = (motivo && motivo.trim().length > 0) ? motivo.trim() : 'Salida / Compromiso';
 
