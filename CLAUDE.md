@@ -11,10 +11,13 @@ palabra "barbero". Todo el texto de la interfaz está en español de México.
 - `frontend/index.html` — sitio público donde el cliente reserva (servicio → barbero → fecha/hora → datos).
 - `frontend/admin.html` — panel del dueño: agenda, walk-in, mover citas, bloqueos, reportes, configuración.
 - `frontend/login.html` — acceso al panel.
+- `frontend/tema.js` — compartido por las tres pantallas: aplica el color de la barbería
+  (`aplicarColorPrimario()`) y pinta el logo o el monograma (`pintarMarca()`).
 - `backend/barberia.db` — base de datos local. **No se sube al repo** (está en `.gitignore`).
 - `backend/wa_auth_info/` — sesión de WhatsApp (Baileys). **No se sube al repo.**
 
-HTML, CSS y JS de cada pantalla van en el mismo archivo, sin frameworks ni build.
+HTML, CSS y JS de cada pantalla van en el mismo archivo, sin frameworks ni build
+(la única excepción es `tema.js`).
 
 ## Cómo correrlo
 
@@ -57,6 +60,14 @@ una al azar y se imprime una vez), `PORT`, `DB_PATH`, `TZ` (por defecto
 - La ubicación de Google Maps se convierte en link solo en el servidor
   (`normalizarUrlMaps()` en `app.js`): al guardar `maps_url`, en `/api/catalogo`
   y en `GET /api/config/maps-url` (botón "Probar" del panel).
+- **Colores (paleta "Latón", todo claro):** crema `#F7F4EE`, carbón `#17140F`,
+  acento `#B8893A`. Cada pantalla define sus colores como variables en `:root`; no
+  escribir colores sueltos. El acento es configurable (`color_primario`) y `tema.js`
+  deriva de él `--on-accent` (texto encima del acento), `--accent-text` (acento como
+  texto sobre crema) y `--accent-on-dark` (sobre carbón). Usar esas variables en vez
+  de `color: var(--accent)`, que no se lee sobre crema. Los tonos suaves se sacan con
+  `color-mix(in srgb, var(--accent) 12%, transparent)`.
+- `GET /api/marca` (pública) devuelve nombre, logo y color; la usa el login.
 - `GET /api/reportes` acepta `fecha` (un día) o `desde` / `hasta` (rango) y
   `barbero_id`; los filtros se hacen en SQL, no en el navegador.
 
@@ -69,17 +80,15 @@ Hecho:
 2. **Sección 2 — Agenda** (PR luisito2806/PW#3): horario semanal, duración de
    servicios, sin empalmes, fechas pasadas/límite de 30 días, WhatsApp sin caídas,
    rutas absolutas.
-3. **Sección 3 — Limpieza** (rama `limpieza-seccion-3`): sin `config.js`, `package.json`
+3. **Sección 3 — Limpieza** (PR luisito2806/PW#5): sin `config.js`, `package.json`
    de la raíz solo con scripts, paso 3 del stepper activo al confirmar, Maps
    normalizado en el servidor, reportes de semana por rango en SQL, sin sello
    "Conexión segura", zoom permitido en móvil, rutas con `async/await`.
+4. **Sección 4 — Colores** (rama `colores-seccion-4`): paleta "Latón" en claro para
+   clientes, login y panel; monograma con la inicial en lugar de los 3 puntos;
+   `color_primario` configurable en el panel (Configuración → Identidad del Negocio).
 
 Pendiente (en este orden):
-4. **Colores:** el sitio de clientes es claro y el panel y el login son oscuros, sin
-   una línea común; el verde menta y los 3 puntos se ven genéricos. Propuestas:
-   "Latón" (crema `#F7F4EE`, carbón `#17140F`, acento `#B8893A`) o "Clásico"
-   (marino `#1B2A41`, crema `#F4EFE6`, rojo `#B23A2E`). Agregar `color_primario`
-   configurable por barbería (marca blanca).
 5. **Para vender como SaaS:** multi-negocio (`negocio_id` en todas las tablas,
    subdominio por cliente, usuarios con roles), Postgres, cobro de suscripción
    (Stripe o Mercado Pago), respaldos, HTTPS y Aviso de Privacidad (LFPDPPP).

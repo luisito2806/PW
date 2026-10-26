@@ -9,19 +9,23 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
+        /* Paleta "Latón": crema, carbón y acento latón (el acento lo ajusta tema.js) */
         :root {
-            --bg:        #0a0a0f;
-            --surface:   #111118;
-            --surface-2: #18181f;
-            --border:    #2a2a38;
-            --ink:       #f0f0f8;
-            --ink-2:     #9090a8;
-            --ink-3:     #55556a;
-            --accent:    #00c285;
-            --accent-d:  #00a872;
-            --accent-dim:rgba(0,194,133,0.10);
-            --accent-glo:rgba(0,194,133,0.22);
-            --danger:    #f43f5e;
+            --bg:             #F7F4EE;
+            --surface:        #FFFDF9;
+            --surface-2:      #F0EBE1;
+            --border:         #E2D9C8;
+            --border-mid:     #CFC4AF;
+            --ink:            #17140F;
+            --ink-2:          #4A4236;
+            --ink-3:          #6F6553;
+            --accent:         #B8893A;
+            --on-accent:      #17140F;
+            --accent-text:    #7D5D27;
+            --accent-hover:   color-mix(in srgb, var(--accent) 85%, #000);
+            --accent-dim:     color-mix(in srgb, var(--accent) 12%, transparent);
+            --accent-glow:    color-mix(in srgb, var(--accent) 24%, transparent);
+            --danger:         #B42318;
             --radius-sm: 12px;
             --radius-md: 18px;
             --radius-lg: 24px;
@@ -44,6 +48,7 @@
             -webkit-font-smoothing:antialiased;
             position:relative;
             overflow:hidden;
+            padding:16px;
         }
 
         /* ── BACKGROUND EFFECTS ── */
@@ -61,7 +66,7 @@
             left:-10%;
             width:60%;
             height:60%;
-            background:radial-gradient(ellipse, rgba(0,194,133,0.07) 0%, transparent 65%);
+            background:radial-gradient(ellipse, color-mix(in srgb, var(--accent) 14%, transparent) 0%, transparent 65%);
             animation:drift 12s ease-in-out infinite alternate;
         }
 
@@ -72,7 +77,7 @@
             right:-10%;
             width:55%;
             height:55%;
-            background:radial-gradient(ellipse, rgba(167,139,250,0.06) 0%, transparent 65%);
+            background:radial-gradient(ellipse, color-mix(in srgb, var(--ink) 6%, transparent) 0%, transparent 65%);
             animation:drift2 15s ease-in-out infinite alternate;
         }
 
@@ -83,16 +88,13 @@
         .login-card {
             position:relative;
             z-index:10;
-            background:rgba(17,17,24,0.9);
-            backdrop-filter:blur(24px);
-            -webkit-backdrop-filter:blur(24px);
+            background:var(--surface);
             border:1px solid var(--border);
             border-radius:var(--radius-xl);
             padding:40px 36px 36px;
             width:100%;
             max-width:380px;
-            box-shadow:0 32px 80px rgba(0,0,0,0.5), 0 8px 24px rgba(0,0,0,0.3),
-                       inset 0 1px 0 rgba(255,255,255,0.06);
+            box-shadow:0 24px 64px rgba(23,20,15,0.10), 0 4px 14px rgba(23,20,15,0.05);
             animation:fadeUp .4s cubic-bezier(0.4,0,0.2,1);
         }
 
@@ -115,16 +117,22 @@
             margin-bottom:14px;
         }
 
-        .logo-dot {
-            width:14px;
-            height:14px;
-            border-radius:50%;
+        .marca-monograma, .marca-logo {
+            width:52px;
+            height:52px;
+            border-radius:14px;
         }
-
-        .logo-dot + .logo-dot { margin-left:-4px; }
-        .dot-g { background:#00c285; }
-        .dot-v { background:#a78bfa; }
-        .dot-b { background:#60a5fa; }
+        .marca-monograma {
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            background:var(--ink);
+            color:var(--accent-on-dark, var(--accent));
+            font-size:24px;
+            font-weight:800;
+            box-shadow:inset 0 0 0 2px var(--accent);
+        }
+        .marca-logo { object-fit:cover; border:1px solid var(--border); }
 
         .brand-name {
             font-size:22px;
@@ -185,7 +193,8 @@
 
         .form-input:focus {
             border-color:var(--accent);
-            box-shadow:0 0 0 3px var(--accent-glo);
+            box-shadow:0 0 0 3px var(--accent-glow);
+            background:var(--surface);
         }
 
         .toggle-pw {
@@ -211,7 +220,7 @@
             width:100%;
             padding:15px;
             background:var(--accent);
-            color:#fff;
+            color:var(--on-accent);
             font-family:inherit;
             font-size:15px;
             font-weight:700;
@@ -225,8 +234,8 @@
         }
 
         .btn-login:hover:not(:disabled) {
-            background:var(--accent-d);
-            box-shadow:0 8px 28px var(--accent-glo);
+            background:var(--accent-hover);
+            box-shadow:0 8px 28px var(--accent-glow);
             transform:translateY(-1px);
         }
 
@@ -247,8 +256,8 @@
             display:none;
             width:16px;
             height:16px;
-            border:2.5px solid rgba(255,255,255,0.35);
-            border-top-color:#fff;
+            border:2.5px solid color-mix(in srgb, var(--on-accent) 35%, transparent);
+            border-top-color:var(--on-accent);
             border-radius:50%;
             animation:spin .6s linear infinite;
         }
@@ -262,12 +271,12 @@
         .error-msg {
             margin-top:14px;
             padding:11px 14px;
-            background:rgba(244,63,94,0.1);
-            border:1px solid rgba(244,63,94,0.22);
+            background:color-mix(in srgb, var(--danger) 8%, transparent);
+            border:1px solid color-mix(in srgb, var(--danger) 25%, transparent);
             border-radius:var(--radius-sm);
             font-size:13px;
             font-weight:600;
-            color:#fb7185;
+            color:var(--danger);
             text-align:center;
             display:none;
         }
@@ -294,9 +303,7 @@
             font-weight:500;
         }
 
-        .footer-link:hover { color:var(--accent); }
-
-        /* ── SECURITY BADGE ── */
+        .footer-link:hover { color:var(--accent-text); }
     </style>
 </head>
 <body>
@@ -306,12 +313,8 @@
 <div class="login-card">
     <!-- Logo -->
     <div class="card-logo">
-        <div class="logo-icon">
-            <span class="logo-dot dot-g"></span>
-            <span class="logo-dot dot-v"></span>
-            <span class="logo-dot dot-b"></span>
-        </div>
-        <div class="brand-name">Doo Barber</div>
+        <div class="logo-icon" id="loginMarca"><span class="marca-monograma">D</span></div>
+        <div class="brand-name" id="loginNombre">Doo Barber</div>
         <div class="brand-sub">Panel de Administración</div>
     </div>
 
@@ -357,8 +360,21 @@
 
 </div>
 
+<script src="tema.js"></script>
 <script>
     const API_URL = window.location.origin;
+
+    // Nombre, logo y color de la barbería (marca blanca)
+    fetch(`${API_URL}/api/marca`)
+        .then(res => res.ok ? res.json() : null)
+        .then(marca => {
+            if (!marca) return;
+            document.getElementById('loginNombre').textContent = marca.nombre_negocio;
+            document.title = `Acceso Admin — ${marca.nombre_negocio}`;
+            pintarMarca(document.getElementById('loginMarca'), marca.nombre_negocio, marca.logo_url);
+            aplicarColorPrimario(marca.color_primario);
+        })
+        .catch(() => {});
 
     // If already logged in, redirect
     if (localStorage.getItem('adminToken')) {
