@@ -116,7 +116,7 @@ Hecho:
    `color_primario` configurable en el panel (Configuración → Identidad del Negocio).
 6. **WhatsApp manual** (PR luisito2806/PW#7): se quitó Baileys y el envío automático;
    mensajes precargados con `wa.me` y plantilla aparte para citas reagendadas.
-5a. **Listo para la primera barbería** (rama `produccion-seccion-5`): Railway
+5a. **Listo para la primera barbería** (PR luisito2806/PW#8): Railway
    (`railway.json`, `/api/salud`), respaldos diarios y descargables, Aviso de
    Privacidad con aceptación obligatoria, dependencias sin vulnerabilidades.
 
