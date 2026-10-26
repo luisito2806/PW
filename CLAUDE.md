@@ -92,7 +92,7 @@ Hecho:
 4. **Sección 4 — Colores** (PR luisito2806/PW#6): paleta "Latón" en claro para
    clientes, login y panel; monograma con la inicial en lugar de los 3 puntos;
    `color_primario` configurable en el panel (Configuración → Identidad del Negocio).
-6. **WhatsApp manual** (rama `whatsapp-manual`): se quitó Baileys y el envío automático;
+6. **WhatsApp manual** (PR luisito2806/PW#7): se quitó Baileys y el envío automático;
    mensajes precargados con `wa.me` y plantilla aparte para citas reagendadas.
 
 Pendiente (en este orden):
