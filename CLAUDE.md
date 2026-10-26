@@ -134,7 +134,7 @@ Hecho:
 5a. **Listo para la primera barbería** (PR luisito2806/PW#8): Railway
    (`railway.json`, `/api/salud`), respaldos diarios y descargables, Aviso de
    Privacidad con aceptación obligatoria, dependencias sin vulnerabilidades.
-5a'. **Migración a Cloudflare** (rama `cloudflare-migracion`): Workers + Hono + D1 en lugar
+5a'. **Migración a Cloudflare** (PR luisito2806/PW#9): Workers + Hono + D1 en lugar
    de Express + SQLite en Railway (gratis y más estable); reservas atómicas en SQL,
    respaldos con Time Travel y descarga `.sql`.
 
