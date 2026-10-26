@@ -14,7 +14,7 @@ palabra "barbero". Todo el texto de la interfaz está en español de México.
 - `frontend/tema.js` — compartido por las tres pantallas: aplica el color de la barbería
   (`aplicarColorPrimario()`) y pinta el logo o el monograma (`pintarMarca()`).
 - `backend/barberia.db` — base de datos local. **No se sube al repo** (está en `.gitignore`).
-- `backend/wa_auth_info/` — sesión de WhatsApp (Baileys). **No se sube al repo.**
+- `backend/wa_auth_info/` — restos de la antigua sesión de Baileys; ya no se usa y se puede borrar.
 
 HTML, CSS y JS de cada pantalla van en el mismo archivo, sin frameworks ni build
 (la única excepción es `tema.js`).
@@ -67,6 +67,11 @@ una al azar y se imprime una vez), `PORT`, `DB_PATH`, `TZ` (por defecto
   texto sobre crema) y `--accent-on-dark` (sobre carbón). Usar esas variables en vez
   de `color: var(--accent)`, que no se lee sobre crema. Los tonos suaves se sacan con
   `color-mix(in srgb, var(--accent) 12%, transparent)`.
+- **WhatsApp es manual** (decisión del dueño: las APIs oficiales salen del presupuesto).
+  No hay envío automático ni Baileys. El botón "WA" de cada cita en el panel abre
+  `wa.me` con el mensaje armado desde `wa_template` (recordatorio) o, si la cita se
+  movió (`citas.reagendada = 1`), desde `wa_template_reagendada` ("Avisar cambio").
+  Variables: `{{negocio}} {{cliente}} {{fecha}} {{hora}} {{barbero}} {{servicio}} {{precio}}`.
 - `GET /api/marca` (pública) devuelve nombre, logo y color; la usa el login.
 - `GET /api/reportes` acepta `fecha` (un día) o `desde` / `hasta` (rango) y
   `barbero_id`; los filtros se hacen en SQL, no en el navegador.
@@ -87,14 +92,12 @@ Hecho:
 4. **Sección 4 — Colores** (PR luisito2806/PW#6): paleta "Latón" en claro para
    clientes, login y panel; monograma con la inicial en lugar de los 3 puntos;
    `color_primario` configurable en el panel (Configuración → Identidad del Negocio).
+6. **WhatsApp manual** (PR luisito2806/PW#7): se quitó Baileys y el envío automático;
+   mensajes precargados con `wa.me` y plantilla aparte para citas reagendadas.
 
 Pendiente (en este orden):
 5. **Para vender como SaaS:** multi-negocio (`negocio_id` en todas las tablas,
    subdominio por cliente, usuarios con roles), Postgres, cobro de suscripción
    (Stripe o Mercado Pago), respaldos, HTTPS y Aviso de Privacidad (LFPDPPP).
-6. **WhatsApp:** Baileys es una conexión no oficial y pueden banear el número del
-   cliente. No usarlo en producción. Plan: proveedor oficial (360dialog, Twilio o
-   Gupshup). Con eso, agregar recordatorios automáticos un día antes de la cita.
-   Mientras tanto, el panel usa enlaces `wa.me`.
 7. **Mejoras de producto:** horario distinto por barbero, anticipo o pago en línea
    para reducir faltas, y cambiar "barbero" por un término configurable según el giro.

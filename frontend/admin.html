@@ -702,6 +702,14 @@
     .horario-dia.cerrado input[type="time"] { opacity: 0.35; }
     .form-hint { font-size: 11.5px; color: var(--text3); display: block; margin-top: 4px; }
 
+    .wa-plantilla {
+      width: 100%;
+      height: 130px;
+      padding: 12px;
+      line-height: 1.5;
+      resize: vertical;
+    }
+
     .color-row { display: flex; align-items: center; gap: 10px; }
     .color-row input[type="color"] {
       width: 48px;
@@ -1224,7 +1232,7 @@
       <div class="page-header">
         <div>
           <h1 class="page-title">Configuración</h1>
-          <p class="page-subtitle">Personaliza la identidad del negocio, WhatsApp automático, barberos, servicios y base de datos</p>
+          <p class="page-subtitle">Personaliza la identidad del negocio, mensajes de WhatsApp, barberos, servicios y base de datos</p>
         </div>
       </div>
 
@@ -1290,26 +1298,29 @@
           </div>
         </div>
 
-        <!-- Card 1: WhatsApp Automático (Baileys) + Plantilla -->
+        <!-- Card 1: Plantillas de WhatsApp (envío manual) -->
         <div class="card-block">
           <h3>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-text)">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
             </svg>
-            Mensaje de WhatsApp Automático
+            Mensajes de WhatsApp
           </h3>
 
-          <div id="waStatusBox" style="padding:14px; background:var(--s3); border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:16px; text-align:center;">
-            <p style="font-size:13px; color:var(--text2);">Consultando conexión con WhatsApp...</p>
-          </div>
-
           <p style="font-size:13px;color:var(--text3);margin-bottom:14px;line-height:1.5;">
-            Este mensaje se envía automáticamente cuando el cliente agenda o reagenda su cita, o cuando presionas el botón "WA" en la agenda.
+            En la agenda, el botón <strong>WA</strong> de cada cita abre WhatsApp con el mensaje ya escrito; solo revísalo y envíalo. Si moviste la cita, el botón dice <strong>Avisar cambio</strong> y usa el segundo mensaje.
           </p>
+
           <div class="form-group">
-            <textarea id="inputWaTemplate" style="width:100%; height:140px; padding:12px; background:var(--s3); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-family:inherit; font-size:13.5px; resize:vertical; outline:none;"></textarea>
+            <label class="form-label" for="inputWaTemplate">Recordatorio de cita</label>
+            <textarea id="inputWaTemplate" class="wa-plantilla" onfocus="plantillaActiva = this"></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="inputWaTemplateReag">Cita reagendada</label>
+            <textarea id="inputWaTemplateReag" class="wa-plantilla" onfocus="plantillaActiva = this"></textarea>
           </div>
 
+          <span class="form-hint" style="margin-bottom:8px;">Toca una variable para insertarla en el mensaje donde está el cursor:</span>
           <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px;">
             <button class="chip-x" type="button" onclick="insertarVariable('{{negocio}}')">{{negocio}}</button>
             <button class="chip-x" type="button" onclick="insertarVariable('{{cliente}}')">{{cliente}}</button>
@@ -1320,7 +1331,7 @@
             <button class="chip-x" type="button" onclick="insertarVariable('{{precio}}')">{{precio}}</button>
           </div>
 
-          <button class="btn-primary" onclick="guardarWaTemplate()">Guardar Plantilla</button>
+          <button class="btn-primary" onclick="guardarWaTemplate()">Guardar Mensajes</button>
         </div>
 
         <!-- Card 2: Gestión de Barberos con Foto -->
@@ -1536,6 +1547,8 @@
     }
 
     let waTemplateGlobal = '';
+    let waTemplateReagGlobal = '';
+    let plantillaActiva = null;
     let nombreNegocioGlobal = 'Doo Barber';
     let logoUrlGlobal = '';
     let colorPrimarioGlobal = COLOR_PRIMARIO_DEFAULT;
@@ -1643,7 +1656,6 @@
       btn.classList.add('active');
 
       if (name === 'reportes') cargarReporteSeccion();
-      if (name === 'configuracion') verificarEstadoWhatsApp();
     }
 
     /* ── AVATAR COLOR HASH & PHOTO COMPRESSOR ─────────────── */
@@ -1696,8 +1708,9 @@
     }
 
     /* ── WHATSAPP LINK ────────────────────────────────────── */
+    // Las citas que se movieron de fecha u hora usan la plantilla de "cita reagendada"
     function buildWaLink(cita) {
-      let msg = waTemplateGlobal || `¡Hola {{cliente}}! 👋 Te recordamos tu cita en *{{negocio}}*:\n📅 Fecha: {{fecha}}\n🕐 Hora: {{hora}}\n💈 Barbero: {{barbero}}\n✂️ Servicio: {{servicio}}\n💰 Total: \${{precio}} MXN\n\n¡Te esperamos! 🙌`;
+      let msg = (cita.reagendada && waTemplateReagGlobal) || waTemplateGlobal || `¡Hola {{cliente}}! 👋 Te recordamos tu cita en *{{negocio}}*:\n📅 Fecha: {{fecha}}\n🕐 Hora: {{hora}}\n💈 Barbero: {{barbero}}\n✂️ Servicio: {{servicio}}\n💰 Total: \${{precio}} MXN\n\n¡Te esperamos! 🙌`;
       const citaFecha = formatDateShort(cita.fecha);
 
       msg = msg.replace(/\{\{negocio\}\}/g, nombreNegocioGlobal || 'Doo Barber')
@@ -1776,6 +1789,10 @@
         if (conf.wa_template) {
           waTemplateGlobal = conf.wa_template;
           document.getElementById('inputWaTemplate').value = waTemplateGlobal;
+        }
+        if (conf.wa_template_reagendada) {
+          waTemplateReagGlobal = conf.wa_template_reagendada;
+          document.getElementById('inputWaTemplateReag').value = waTemplateReagGlobal;
         }
         renderHorarioSemanal(conf.horario_semanal);
         document.getElementById('confIntervalo').value = String(conf.intervalo_min || 60);
@@ -2046,45 +2063,6 @@
       }
     }
 
-    /* ── WHATSAPP BAILEYS QR STATUS ───────────────────────── */
-    async function verificarEstadoWhatsApp() {
-      const box = document.getElementById('waStatusBox');
-      try {
-        const res = await fetch(`${API_URL}/api/whatsapp/status`, { headers: authHeaders });
-        const data = await res.json();
-        if (data.status === 'conectado') {
-          box.innerHTML = `
-            <div style="color: var(--accent-text); font-weight:700; margin-bottom:8px;">
-              ✅ WhatsApp Conectado — Envío Automático Activo
-            </div>
-            <button class="chip-x" onclick="reiniciarWhatsApp()">Desvincular número</button>`;
-        } else if (data.status === 'esperando_qr' && data.qr) {
-          box.innerHTML = `
-            <div style="color:var(--warn); font-weight:600; font-size:13px; margin-bottom:10px;">
-              📱 Escanea este código QR desde el WhatsApp de la barbería:
-            </div>
-            <img src="${escapeHtml(data.qr)}" style="width:190px; height:190px; border-radius:12px; border:4px solid #fff;" />
-            <div style="margin-top:8px;">
-              <button class="chip-x" onclick="verificarEstadoWhatsApp()">🔄 Actualizar Estado</button>
-            </div>`;
-        } else {
-          box.innerHTML = `
-            <div style="color:var(--text2); font-size:13px; margin-bottom:8px;">
-              ⏳ Generando código QR de WhatsApp...
-            </div>
-            <button class="chip-x" onclick="verificarEstadoWhatsApp()">🔄 Verificar QR</button>`;
-        }
-      } catch {
-        box.innerHTML = `<span style="color:var(--danger)">Error al consultar el estado de WhatsApp</span>`;
-      }
-    }
-
-    async function reiniciarWhatsApp() {
-      if (!confirm('¿Deseas cerrar la sesión actual de WhatsApp y generar un nuevo QR?')) return;
-      await fetch(`${API_URL}/api/whatsapp/logout`, { method: 'POST', headers: authHeaders });
-      setTimeout(verificarEstadoWhatsApp, 2500);
-    }
-
     /* ── QUICK FILTER BUTTONS ─────────────────────────────── */
     function clearQuickBtns(parentGroup) {
       document.querySelectorAll(parentGroup + ' .qbtn').forEach(b => b.classList.remove('active'));
@@ -2254,9 +2232,9 @@
                 <div class="actions">
                   ${btnCobrar}
                   ${btnCancelar}
-                  <a class="btn-wa" href="${escapeHtml(waLink)}" target="_blank" rel="noopener">
+                  <a class="btn-wa" href="${escapeHtml(waLink)}" target="_blank" rel="noopener" title="${cita.reagendada ? 'Avisar al cliente que su cita cambió' : 'Enviar recordatorio por WhatsApp'}">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z"/></svg>
-                    WA
+                    ${cita.reagendada ? 'Avisar cambio' : 'WA'}
                   </a>
                 </div>
               </td>
@@ -2635,19 +2613,25 @@
     }
 
     async function guardarWaTemplate() {
-      const valor = document.getElementById('inputWaTemplate').value;
-      if (!valor) return alert('El mensaje no puede estar vacío');
+      const recordatorio = document.getElementById('inputWaTemplate').value.trim();
+      const reagendada   = document.getElementById('inputWaTemplateReag').value.trim();
+      if (!recordatorio || !reagendada) return alert('Los dos mensajes deben tener texto.');
       try {
-        const res = await fetch(`${API_URL}/api/config`, {
+        const respuestas = await Promise.all([
+          ['wa_template', recordatorio],
+          ['wa_template_reagendada', reagendada]
+        ].map(([clave, valor]) => fetch(`${API_URL}/api/config`, {
           method: 'PUT',
           headers: authHeaders,
-          body: JSON.stringify({ clave: 'wa_template', valor })
-        });
-        if (res.ok) {
-          waTemplateGlobal = valor;
-          alert('Plantilla guardada correctamente');
+          body: JSON.stringify({ clave, valor })
+        })));
+        if (respuestas.every(r => r.ok)) {
+          waTemplateGlobal = recordatorio;
+          waTemplateReagGlobal = reagendada;
+          alert('Mensajes guardados correctamente');
+          recargarAgendaActual();
         } else {
-          alert('Error al guardar la plantilla');
+          alert('Error al guardar los mensajes');
         }
       } catch (e) {
         alert('Error de conexión');
@@ -2655,7 +2639,7 @@
     }
 
     function insertarVariable(variable) {
-      const textarea = document.getElementById('inputWaTemplate');
+      const textarea = plantillaActiva || document.getElementById('inputWaTemplate');
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
       const text = textarea.value;

@@ -6,18 +6,14 @@ const cors = require('cors');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const crypto = require('crypto');
-const fs = require('fs');
-const QRCode = require('qrcode');
-const pino = require('pino');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Rutas absolutas: funcionan igual sin importar desde qué carpeta se ejecute `node`
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'barberia.db');
-const WA_AUTH_DIR = path.join(__dirname, 'wa_auth_info');
 
-// Evita que un error inesperado (por ejemplo de la conexión de WhatsApp) tumbe el servidor
+// Evita que un error inesperado tumbe el servidor
 process.on('unhandledRejection', (err) => {
     console.error('Error no controlado:', err);
 });
@@ -69,6 +65,7 @@ db.serialize(() => {
     db.run(`ALTER TABLE citas ADD COLUMN barbero_nombre TEXT DEFAULT 'General'`, () => {});
     db.run(`ALTER TABLE citas ADD COLUMN token_cancelacion TEXT`, () => {});
     db.run(`ALTER TABLE citas ADD COLUMN duracion_min INTEGER DEFAULT 60`, () => {});
+    db.run(`ALTER TABLE citas ADD COLUMN reagendada INTEGER DEFAULT 0`, () => {});
 
     // 2. Días completos bloqueados
     db.run(`CREATE TABLE IF NOT EXISTS dias_bloqueados (
@@ -132,6 +129,7 @@ db.serialize(() => {
             ['logo_url', ''],
             ['color_primario', '#B8893A'],
             ['wa_template', '¡Hola {{cliente}}! 👋 Te recordamos tu cita en *{{negocio}}*:\n📅 Fecha: {{fecha}}\n🕐 Hora: {{hora}}\n💈 Barbero: {{barbero}}\n✂️ Servicio: {{servicio}}\n💰 Total: ${{precio}} MXN\n\nResponde con un *OK* o un 👍 para confirmar de recibido. ¡Te esperamos! 🙌'],
+            ['wa_template_reagendada', '¡Hola {{cliente}}! 🔄 Tu cita en *{{negocio}}* ha sido reagendada:\n📅 Nueva fecha: {{fecha}}\n🕐 Nueva hora: {{hora}}\n💈 Barbero: {{barbero}}\n✂️ Servicio: {{servicio}}\n\nResponde con un *OK* o un 👍 para confirmar. ¡Te esperamos! 🙌'],
             ['hora_apertura', '10'],
             ['hora_cierre', '19'],
             ['maps_url', 'https://maps.google.com'],
@@ -155,108 +153,10 @@ db.serialize(() => {
     });
 });
 
-// ─── BOT DE WHATSAPP (BAILEYS CON ANTI-BANEO) ────────────────────────
-let waSock = null;
-let waStatus = 'desconectado';
-let waQrBase64 = null;
-
-async function iniciarWhatsApp() {
-    try {
-        const {
-            default: makeWASocket,
-            useMultiFileAuthState,
-            DisconnectReason,
-            fetchLatestBaileysVersion
-        } = await import('@whiskeysockets/baileys');
-
-        const { state, saveCreds } = await useMultiFileAuthState(WA_AUTH_DIR);
-        const { version } = await fetchLatestBaileysVersion();
-
-        waSock = makeWASocket({
-            version,
-            auth: state,
-            printQRInTerminal: false,
-            logger: pino({ level: 'silent' })
-        });
-
-        waSock.ev.on('creds.update', saveCreds);
-
-        waSock.ev.on('connection.update', async (update) => {
-            const { connection, lastDisconnect, qr } = update;
-
-            if (qr) {
-                waStatus = 'esperando_qr';
-                waQrBase64 = await QRCode.toDataURL(qr);
-            }
-
-            if (connection === 'close') {
-                waQrBase64 = null;
-                const statusCode = lastDisconnect?.error?.output?.statusCode;
-                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-                waStatus = 'desconectado';
-
-                if (shouldReconnect) {
-                    setTimeout(iniciarWhatsApp, 4000);
-                } else {
-                    if (fs.existsSync(WA_AUTH_DIR)) {
-                        fs.rmSync(WA_AUTH_DIR, { recursive: true, force: true });
-                    }
-                    setTimeout(iniciarWhatsApp, 2000);
-                }
-            } else if (connection === 'open') {
-                waStatus = 'conectado';
-                waQrBase64 = null;
-                console.log('✅ WhatsApp conectado y listo para enviar mensajes automáticos');
-            }
-        });
-    } catch (err) {
-        console.error('Error iniciando WhatsApp:', err.message);
-    }
-}
-
-iniciarWhatsApp();
-
-async function enviarWhatsAppAutomatico(cita, textoPersonalizado = null) {
-    if (waStatus !== 'conectado' || !waSock) return false;
-    try {
-        const conf = await obtenerConfig();
-        const nombreNegocio = conf.nombre_negocio || 'Doo Barber';
-        let msg = textoPersonalizado || conf.wa_template || `¡Hola {{cliente}}! Tu cita en *${nombreNegocio}* es el {{fecha}} a las {{hora}}.`;
-
-        const [y, m, d] = (cita.fecha || '').split('-');
-        const fechaCorta = y ? `${d}-${m}-${y.slice(-2)}` : cita.fecha;
-
-        msg = msg.replace(/\{\{negocio\}\}/g, nombreNegocio)
-                 .replace(/\{\{cliente\}\}/g, cita.cliente || '')
-                 .replace(/\{\{fecha\}\}/g, fechaCorta)
-                 .replace(/\{\{hora\}\}/g, cita.hora || '')
-                 .replace(/\{\{servicio\}\}/g, cita.servicio || '')
-                 .replace(/\{\{precio\}\}/g, cita.precio || '')
-                 .replace(/\{\{barbero\}\}/g, cita.barbero_nombre || 'General');
-
-        // Se consultan ambos formatos de número de México y se usa el que exista en WhatsApp
-        const cleanPhone = (cita.telefono || '').replace(/\D/g, '');
-        const resultados = await waSock.onWhatsApp(`52${cleanPhone}`, `521${cleanPhone}`);
-        const result = (resultados || []).find(r => r.exists);
-        if (!result) return false;
-        const jid = result.jid;
-
-        // Simulación de escritura humana (Anti-Baneo)
-        const delayInicial = Math.floor(Math.random() * 2000) + 2000;
-        await new Promise(r => setTimeout(r, delayInicial));
-
-        await waSock.sendPresenceUpdate('composing', jid);
-        const tiempoEscritura = Math.floor(Math.random() * 2500) + 1500;
-        await new Promise(r => setTimeout(r, tiempoEscritura));
-        await waSock.sendPresenceUpdate('paused', jid);
-
-        await waSock.sendMessage(jid, { text: msg });
-        return true;
-    } catch (e) {
-        console.error('Error enviando WA:', e.message);
-        return false;
-    }
-}
+// ─── WHATSAPP ────────────────────────────────────────────────────────
+// Los mensajes se mandan a mano desde el panel: el botón "WA" de cada cita abre
+// WhatsApp (wa.me) con el mensaje ya escrito a partir de las plantillas
+// `wa_template` (recordatorio) y `wa_template_reagendada`. No hay envío automático.
 
 // ─── AGENDA: HORARIO SEMANAL, DURACIONES Y DISPONIBILIDAD ────────────
 const DIAS_MAX_RESERVA = 30;
@@ -465,6 +365,7 @@ const CONFIG_EDITABLE = {
     logo_url:       v => imagenValida(v),
     color_primario: v => typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v),
     wa_template:    v => textoValido(v, 1000),
+    wa_template_reagendada: v => textoValido(v, 1000),
     horario_semanal: v => {
         try { return typeof v === 'string' && v.length <= 2000 && horarioSemanalValido(JSON.parse(v)); }
         catch { return false; }
@@ -591,24 +492,6 @@ async function detectarAdmin(req, res, next) {
     req.esAdmin = await esSesionValida(obtenerToken(req));
     next();
 }
-
-// ─── ENDPOINTS WHATSAPP ──────────────────────────────────────────────
-app.get('/api/whatsapp/status', verificarAdmin, (req, res) => {
-    res.json({ status: waStatus, qr: waQrBase64 });
-});
-
-app.post('/api/whatsapp/logout', verificarAdmin, async (req, res) => {
-    try {
-        if (waSock) await waSock.logout();
-    } catch {}
-    if (fs.existsSync(WA_AUTH_DIR)) {
-        fs.rmSync(WA_AUTH_DIR, { recursive: true, force: true });
-    }
-    waStatus = 'desconectado';
-    waQrBase64 = null;
-    setTimeout(iniciarWhatsApp, 1500);
-    res.json({ mensaje: 'Sesión de WhatsApp reiniciada' });
-});
 
 // ─── LIMPIAR BASE DE DATOS DE CITAS Y BLOQUEOS (DEJAR COMO NUEVO) ────
 app.delete('/api/reset-citas', verificarAdmin, async (req, res) => {
@@ -835,21 +718,10 @@ app.post('/api/citas', detectarAdmin, async (req, res) => {
                 id: insert.lastID,
                 barbero_nombre: barbero.nombre,
                 token_cancelacion: tokenCancelacion
-            },
-            cita: {
-                id: insert.lastID,
-                cliente,
-                telefono,
-                servicio: srv.nombre,
-                precio: srv.precio,
-                hora,
-                fecha,
-                barbero_nombre: barbero.nombre
             }
         };
     });
 
-    if (resultado.cita) enviarWhatsAppAutomatico(resultado.cita);
     res.status(resultado.status).json(resultado.body);
 });
 
@@ -889,23 +761,14 @@ app.patch('/api/citas/:id/reagendar', verificarAdmin, async (req, res) => {
         }
 
         const barbero = turno.libres[0];
+        // `reagendada` hace que el botón de WhatsApp del panel use la plantilla de cita reagendada
         await dbRun(
-            `UPDATE citas SET fecha = ?, hora = ?, barbero_id = ?, barbero_nombre = ? WHERE id = ?`,
+            `UPDATE citas SET fecha = ?, hora = ?, barbero_id = ?, barbero_nombre = ?, reagendada = 1 WHERE id = ?`,
             [fecha, hora, barbero.id, barbero.nombre, id]
         );
-        return {
-            status: 200,
-            body: { mensaje: 'Cita reagendada correctamente' },
-            cita: { ...citaActual, fecha, hora, barbero_id: barbero.id, barbero_nombre: barbero.nombre }
-        };
+        return { status: 200, body: { mensaje: 'Cita reagendada correctamente' } };
     });
 
-    if (resultado.cita) {
-        enviarWhatsAppAutomatico(
-            resultado.cita,
-            `¡Hola {{cliente}}! 🔄 Tu cita en *{{negocio}}* ha sido reagendada:\n📅 Nueva Fecha: {{fecha}}\n🕐 Nueva Hora: {{hora}}\n💈 Barbero: {{barbero}}\n✂️ Servicio: {{servicio}}\n\n¡Te esperamos! 🙌`
-        );
-    }
     res.status(resultado.status).json(resultado.body);
 });
 
