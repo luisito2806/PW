@@ -6,8 +6,9 @@ node_modules/
 *.db-journal
 *.sqlite
 
-# Sesión de WhatsApp (quien tenga esta carpeta controla el número)
-wa_auth_info/
-
 # Variables de entorno (contraseñas)
 .env
+.dev.vars
+
+# Base de datos local y archivos temporales de Wrangler
+.wrangler/
