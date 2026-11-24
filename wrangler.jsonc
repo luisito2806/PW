@@ -1,0 +1,29 @@
+// Configuración de Cloudflare Workers (una copia por barbería).
+// Antes del primer despliegue: crear la base con `npx wrangler d1 create doo-barber`
+// y pegar aquí el database_id que muestra.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "doo-barber",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    // El sitio (clientes, login, panel) se sirve tal cual; solo /api/* pasa por el Worker
+    "directory": "./frontend",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "doo-barber",
+      "database_id": "REEMPLAZAR-CON-EL-ID-DE-wrangler-d1-create",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    // Zona horaria de la barbería: define qué es "hoy" y qué horas ya pasaron
+    "ZONA_HORARIA": "America/Mexico_City"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

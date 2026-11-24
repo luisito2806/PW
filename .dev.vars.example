@@ -1,0 +1,4 @@
+# Copia este archivo como .dev.vars para probar en tu computadora (npm run dev).
+# .dev.vars no se sube al repositorio. En Cloudflare, la contraseña se guarda con:
+#   npx wrangler secret put ADMIN_PASSWORD
+ADMIN_PASSWORD=cambia-esta-clave

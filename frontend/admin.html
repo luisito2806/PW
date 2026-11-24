@@ -1298,6 +1298,51 @@
           </div>
         </div>
 
+        <!-- Card 1b: Aviso de Privacidad y respaldos -->
+        <div class="card-block" style="grid-column: 1 / -1;">
+          <div class="two-col-grid" style="margin-top:0;">
+            <div>
+              <h3>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent-text)">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
+                Aviso de Privacidad
+              </h3>
+              <p style="font-size:13px;color:var(--text3);margin-bottom:14px;line-height:1.5;">
+                Estos datos aparecen en el <a href="privacidad.html" target="_blank" rel="noopener" style="color:var(--accent-text);font-weight:600;">Aviso de Privacidad</a> que el cliente acepta al reservar. La ley pide que estén completos.
+              </p>
+              <div class="form-group">
+                <label class="form-label" for="confPrivResponsable">Responsable (persona o razón social)</label>
+                <input type="text" id="confPrivResponsable" maxlength="120" placeholder="Ej. Juan Pérez López" />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="confPrivDomicilio">Domicilio</label>
+                <input type="text" id="confPrivDomicilio" maxlength="250" placeholder="Calle, número, colonia, ciudad, estado, C.P." />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="confPrivContacto">Correo o teléfono para dudas de privacidad</label>
+                <input type="text" id="confPrivContacto" maxlength="120" placeholder="Ej. privacidad@mibarberia.com" />
+              </div>
+              <button class="btn-primary" onclick="guardarPrivacidad()">Guardar Aviso de Privacidad</button>
+            </div>
+
+            <div style="border-left: 1px solid var(--border); padding-left: 20px; display:flex; flex-direction:column; justify-content:space-between;">
+              <div>
+                <h3>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--info)">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  Respaldos
+                </h3>
+                <p style="font-size:13px;color:var(--text3);margin-bottom:14px;line-height:1.5;">
+                  Cloudflare guarda automáticamente el historial de la base de datos de los últimos 7 días y puede regresarla a cualquier momento de ese periodo. Además, descarga una copia de vez en cuando (por ejemplo, cada semana) y guárdala en tu computadora o en la nube.
+                </p>
+              </div>
+              <button class="btn-primary" onclick="descargarRespaldo()">Descargar respaldo ahora</button>
+            </div>
+          </div>
+        </div>
+
         <!-- Card 1: Plantillas de WhatsApp (envío manual) -->
         <div class="card-block">
           <h3>
@@ -1798,6 +1843,9 @@
         document.getElementById('confIntervalo').value = String(conf.intervalo_min || 60);
         document.getElementById('confMaps').value      = conf.maps_url || '';
         document.getElementById('confMaxFaltas').value = conf.max_faltas || 2;
+        document.getElementById('confPrivResponsable').value = conf.privacidad_responsable || '';
+        document.getElementById('confPrivDomicilio').value   = conf.privacidad_domicilio || '';
+        document.getElementById('confPrivContacto').value    = conf.privacidad_contacto || '';
       } catch (e) {
         console.error(e);
       }
@@ -1888,6 +1936,43 @@
         }
       } catch {
         alert('Error de conexión.');
+      }
+    }
+
+    /* ── AVISO DE PRIVACIDAD Y RESPALDOS ───────────────────── */
+    async function guardarPrivacidad() {
+      const cambios = [
+        ['privacidad_responsable', document.getElementById('confPrivResponsable').value.trim()],
+        ['privacidad_domicilio',   document.getElementById('confPrivDomicilio').value.trim()],
+        ['privacidad_contacto',    document.getElementById('confPrivContacto').value.trim()]
+      ];
+      if (cambios.some(([, valor]) => !valor)) {
+        if (!confirm('Hay campos vacíos; en el aviso aparecerán como "No especificado". ¿Guardar de todos modos?')) return;
+      }
+      try {
+        const respuestas = await Promise.all(cambios.map(([clave, valor]) =>
+          fetch(`${API_URL}/api/config`, { method: 'PUT', headers: authHeaders, body: JSON.stringify({ clave, valor }) })
+        ));
+        alert(respuestas.every(r => r.ok) ? 'Aviso de Privacidad actualizado.' : 'No se pudieron guardar algunos datos.');
+      } catch {
+        alert('Error de conexión con el servidor.');
+      }
+    }
+
+    // Se descarga con fetch porque la ruta requiere el token de sesión
+    async function descargarRespaldo() {
+      try {
+        const res = await fetch(`${API_URL}/api/respaldo`, { headers: authHeaders });
+        if (res.status === 401) { cerrarSesion(); return; }
+        if (!res.ok) throw new Error();
+        const url = URL.createObjectURL(await res.blob());
+        const enlace = document.createElement('a');
+        enlace.href = url;
+        enlace.download = `respaldo-${todayISO()}.sql`;
+        enlace.click();
+        URL.revokeObjectURL(url);
+      } catch {
+        alert('No se pudo descargar el respaldo.');
       }
     }
 

@@ -910,6 +910,28 @@
 
         .form-input::placeholder { color:var(--border-mid); }
 
+        .check-privacidad {
+            display:flex;
+            align-items:flex-start;
+            gap:10px;
+            margin:4px 0 16px;
+            font-size:13px;
+            color:var(--ink-2);
+            line-height:1.5;
+            cursor:pointer;
+        }
+        .check-privacidad input { width:17px; height:17px; margin-top:1px; accent-color:var(--accent); flex-shrink:0; }
+        .check-privacidad a { color:var(--accent-text); font-weight:600; }
+
+        .site-footer {
+            text-align:center;
+            font-size:12.5px;
+            color:var(--ink-3);
+            padding:0 16px 32px;
+        }
+        .site-footer a { color:var(--ink-3); }
+        .site-footer a:hover { color:var(--accent-text); }
+
         .modal-actions {
             display:flex;
             gap:10px;
@@ -1119,6 +1141,10 @@
                 <label class="form-label" for="telefonoCliente">WhatsApp (10 dígitos)</label>
                 <input type="tel" id="telefonoCliente" class="form-input" placeholder="55 1234 5678" required autocomplete="tel" inputmode="numeric" maxlength="10">
             </div>
+            <label class="check-privacidad">
+                <input type="checkbox" id="aceptaPrivacidad">
+                <span>He leído y acepto el <a href="privacidad.html" target="_blank" rel="noopener">Aviso de Privacidad</a>.</span>
+            </label>
             <div class="modal-actions">
                 <button type="button" class="btn-ghost" id="btnCloseModal">Cancelar</button>
                 <button type="submit" class="btn-submit" id="btnSubmit">Reservar turno</button>
@@ -1126,6 +1152,10 @@
         </form>
     </div>
 </div>
+
+<footer class="site-footer">
+    <a href="privacidad.html">Aviso de Privacidad</a>
+</footer>
 
 <!-- ── TOAST ── -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -1554,6 +1584,10 @@
             toast('El teléfono debe tener 10 dígitos', 'error');
             return;
         }
+        if (!document.getElementById('aceptaPrivacidad').checked) {
+            toast('Acepta el Aviso de Privacidad para reservar', 'error');
+            return;
+        }
 
         const btn = document.getElementById('btnSubmit');
         btn.disabled    = true;
@@ -1569,7 +1603,8 @@
             servicio_id: selService.id,
             fecha:       selDate,
             hora:        selTime,
-            barbero_id:  selBarber.id
+            barbero_id:  selBarber.id,
+            acepta_privacidad: true
         };
 
         try {
