@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aviso de Privacidad</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        /* Paleta "Latón": crema, carbón y acento latón (el acento lo ajusta tema.js) */
+        :root {
+            --bg:             #F7F4EE;
+            --surface:        #FFFDF9;
+            --border:         #E2D9C8;
+            --ink:            #17140F;
+            --ink-2:          #4A4236;
+            --ink-3:          #6F6553;
+            --accent:         #B8893A;
+            --on-accent:      #17140F;
+            --accent-text:    #7D5D27;
+            --accent-on-dark: #B8893A;
+            --radius-md:      16px;
+            --radius-lg:      22px;
+        }
+
+        *,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+
+        body {
+            font-family:'Outfit',-apple-system,BlinkMacSystemFont,sans-serif;
+            background:var(--bg);
+            color:var(--ink-2);
+            font-size:15px;
+            line-height:1.7;
+            -webkit-font-smoothing:antialiased;
+        }
+
+        .site-header {
+            background:var(--ink);
+            height:58px;
+            display:flex;
+            align-items:center;
+            padding:0 20px;
+        }
+
+        .logo { display:flex; align-items:center; gap:10px; text-decoration:none; }
+        .marca-monograma, .marca-logo { width:32px; height:32px; border-radius:9px; flex-shrink:0; }
+        .marca-monograma {
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            background:var(--accent);
+            color:var(--on-accent);
+            font-size:16px;
+            font-weight:800;
+        }
+        .marca-logo { object-fit:cover; border:1px solid rgba(255,255,255,0.2); }
+        .logo-name { font-size:17px; font-weight:700; color:#fff; letter-spacing:-0.3px; }
+
+        .page { max-width:720px; margin:0 auto; padding:32px 16px 80px; }
+
+        .back {
+            display:inline-block;
+            margin-bottom:20px;
+            font-size:14px;
+            font-weight:600;
+            color:var(--accent-text);
+            text-decoration:none;
+        }
+        .back:hover { text-decoration:underline; }
+
+        .doc {
+            background:var(--surface);
+            border:1px solid var(--border);
+            border-radius:var(--radius-lg);
+            padding:32px 28px;
+        }
+
+        h1 {
+            font-size:30px;
+            font-weight:800;
+            color:var(--ink);
+            letter-spacing:-0.8px;
+            line-height:1.15;
+            margin-bottom:6px;
+        }
+
+        .actualizado { font-size:13px; color:var(--ink-3); margin-bottom:24px; }
+
+        h2 {
+            font-size:17px;
+            font-weight:700;
+            color:var(--ink);
+            margin:26px 0 8px;
+        }
+
+        p + p, p + ul, ul + p { margin-top:10px; }
+        ul { padding-left:22px; }
+        li + li { margin-top:4px; }
+        strong { color:var(--ink); font-weight:600; }
+
+        .responsable {
+            background:var(--bg);
+            border:1px solid var(--border);
+            border-radius:var(--radius-md);
+            padding:14px 16px;
+            margin-top:10px;
+        }
+
+        @media (max-width:480px) {
+            .doc { padding:24px 18px; }
+            h1 { font-size:25px; }
+        }
+    </style>
+</head>
+<body>
+
+<header class="site-header">
+    <a class="logo" href="/">
+        <span id="marca"><span class="marca-monograma">D</span></span>
+        <span class="logo-name" id="nombreNegocio">Doo Barber</span>
+    </a>
+</header>
+
+<main class="page">
+    <a class="back" href="/">← Volver a reservar</a>
+
+    <article class="doc">
+        <h1>Aviso de Privacidad</h1>
+        <p class="actualizado">Última actualización: 26 de octubre de 2026</p>
+
+        <p>
+            Este aviso explica qué datos personales recabamos cuando reservas una cita en línea,
+            para qué los usamos y cómo puedes ejercer tus derechos, conforme a la Ley Federal de
+            Protección de Datos Personales en Posesión de los Particulares.
+        </p>
+
+        <h2>1. Responsable de tus datos</h2>
+        <div class="responsable">
+            <p><strong>Responsable:</strong> <span data-campo="privacidad_responsable"></span></p>
+            <p><strong>Domicilio:</strong> <span data-campo="privacidad_domicilio"></span></p>
+            <p><strong>Contacto para temas de privacidad:</strong> <span data-campo="privacidad_contacto"></span></p>
+        </div>
+
+        <h2>2. Datos que recabamos</h2>
+        <ul>
+            <li>Tu nombre.</li>
+            <li>Tu número de teléfono (WhatsApp).</li>
+            <li>Los datos de tu cita: servicio, fecha, hora, barbero y precio.</li>
+            <li>Tu historial de citas, incluyendo si asististe o no.</li>
+        </ul>
+        <p>No recabamos datos personales sensibles ni datos bancarios.</p>
+
+        <h2>3. Para qué usamos tus datos</h2>
+        <ul>
+            <li>Agendar, confirmar, cambiar o cancelar tu cita.</li>
+            <li>Enviarte por WhatsApp recordatorios de tu cita o avisos si cambia de fecha u hora. Estos mensajes los envía personalmente el negocio.</li>
+            <li>Llevar el registro de citas y asistencias. Si acumulas varias inasistencias sin aviso, podemos pedirte que agendes directamente con nosotros.</li>
+        </ul>
+        <p>No usamos tus datos para publicidad, no los vendemos y no los compartimos con terceros para sus propios fines.</p>
+
+        <h2>4. Con quién compartimos tus datos</h2>
+        <p>
+            No transferimos tus datos personales. Para operar el sistema de reservas usamos un
+            proveedor de alojamiento en internet, que solo guarda la información por nuestra cuenta
+            y no puede usarla para otros fines.
+        </p>
+
+        <h2>5. Datos guardados en tu dispositivo</h2>
+        <p>
+            Para que tu próxima reserva sea más rápida, el sitio guarda en tu navegador tu nombre,
+            tu teléfono y los datos de tu cita activa. Puedes borrarlos cuando quieras eliminando los
+            datos de este sitio en la configuración de tu navegador. No usamos cookies de rastreo.
+        </p>
+
+        <h2>6. Cuánto tiempo los conservamos</h2>
+        <p>
+            Conservamos tus datos mientras sean necesarios para las finalidades descritas y para
+            cumplir obligaciones legales. Después los eliminamos.
+        </p>
+
+        <h2>7. Tus derechos (ARCO) y cómo ejercerlos</h2>
+        <p>
+            Puedes <strong>acceder</strong> a tus datos, pedir que los <strong>rectifiquemos</strong>
+            si están mal, que los <strong>cancelemos</strong> (borremos) u <strong>oponerte</strong>
+            a su uso. También puedes revocar tu consentimiento.
+        </p>
+        <p>
+            Para hacerlo, escríbenos a <span data-campo="privacidad_contacto"></span> indicando tu
+            nombre, el teléfono con el que reservaste y qué derecho quieres ejercer. Te responderemos
+            en un plazo máximo de 20 días hábiles.
+        </p>
+        <p>
+            Si consideras que tus derechos no fueron atendidos, puedes acudir a la autoridad
+            competente en materia de protección de datos personales.
+        </p>
+
+        <h2>8. Cambios a este aviso</h2>
+        <p>
+            Cualquier cambio a este Aviso de Privacidad se publicará en esta misma página, con su
+            fecha de actualización.
+        </p>
+    </article>
+</main>
+
+<script src="tema.js"></script>
+<script>
+    const SIN_DATO = 'No especificado';
+
+    fetch(`${window.location.origin}/api/marca`)
+        .then(res => res.ok ? res.json() : null)
+        .then(marca => {
+            if (!marca) return;
+            document.getElementById('nombreNegocio').textContent = marca.nombre_negocio;
+            document.title = `Aviso de Privacidad — ${marca.nombre_negocio}`;
+            pintarMarca(document.getElementById('marca'), marca.nombre_negocio, marca.logo_url);
+            aplicarColorPrimario(marca.color_primario);
+            document.querySelectorAll('[data-campo]').forEach(el => {
+                el.textContent = marca[el.dataset.campo] || SIN_DATO;
+            });
+        })
+        .catch(() => {});
+</script>
+</body>
+</html>

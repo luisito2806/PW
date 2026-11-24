@@ -11,6 +11,9 @@ palabra "barbero". Todo el texto de la interfaz está en español de México.
 - `frontend/index.html` — sitio público donde el cliente reserva (servicio → barbero → fecha/hora → datos).
 - `frontend/admin.html` — panel del dueño: agenda, walk-in, mover citas, bloqueos, reportes, configuración.
 - `frontend/login.html` — acceso al panel.
+- `frontend/privacidad.html` — Aviso de Privacidad (LFPDPPP); los datos del responsable se
+  configuran en el panel y llegan por `/api/marca`.
+- `railway.json` — cómo Railway instala, arranca y revisa el servidor (`/api/salud`).
 - `frontend/tema.js` — compartido por las tres pantallas: aplica el color de la barbería
   (`aplicarColorPrimario()`) y pinta el logo o el monograma (`pintarMarca()`).
 - `backend/barberia.db` — base de datos local. **No se sube al repo** (está en `.gitignore`).
@@ -32,7 +35,22 @@ Abrir http://localhost:3000 (clientes) y http://localhost:3000/login.html (panel
 
 Variables de entorno: `ADMIN_PASSWORD` (si falta y no hay clave guardada, se genera
 una al azar y se imprime una vez), `PORT`, `DB_PATH`, `TZ` (por defecto
-`America/Mexico_City`), `CORS_ORIGIN`, `TRUST_PROXY`.
+`America/Mexico_City`), `CORS_ORIGIN`, `TRUST_PROXY`, `RESPALDOS_DIR` (por defecto
+`respaldos/` junto a la BD) y `RESPALDOS_A_GUARDAR` (por defecto 14).
+
+En Windows, si PowerShell bloquea `npm` (política de ejecución), usar `npm.cmd`.
+npm 11+ bloquea scripts de instalación no aprobados: `sqlite3` está aprobado en
+`allowScripts` de `backend/package.json` porque necesita el suyo para bajar su binario.
+
+## Producción (una copia por barbería en Railway)
+
+Modelo actual: cada barbería tiene su propio servicio en Railway con su propia BD.
+- Un servicio por barbería conectado a este repo (rama `main`); `railway.json` define build y start.
+- Volumen montado en `/data`; variables `DB_PATH=/data/barberia.db`, `ADMIN_PASSWORD`,
+  `TRUST_PROXY=1` (para que el límite de intentos de login vea la IP real) y `TZ`.
+- Dominio propio de la barbería apuntado con un registro CNAME al dominio que da Railway (HTTPS automático).
+- Respaldos: copia diaria automática en `/data/respaldos` (mismo volumen) y botón
+  "Descargar respaldo ahora" en el panel para guardar copias fuera del servidor.
 
 ## Reglas importantes del código
 
@@ -72,7 +90,11 @@ una al azar y se imprime una vez), `PORT`, `DB_PATH`, `TZ` (por defecto
   `wa.me` con el mensaje armado desde `wa_template` (recordatorio) o, si la cita se
   movió (`citas.reagendada = 1`), desde `wa_template_reagendada` ("Avisar cambio").
   Variables: `{{negocio}} {{cliente}} {{fecha}} {{hora}} {{barbero}} {{servicio}} {{precio}}`.
-- `GET /api/marca` (pública) devuelve nombre, logo y color; la usa el login.
+- `GET /api/marca` (pública) devuelve nombre, logo, color y datos del Aviso de Privacidad;
+  la usan el login y `privacidad.html`.
+- **Aviso de Privacidad:** el cliente debe aceptarlo para reservar (`acepta_privacidad: true`
+  en `POST /api/citas`; el admin no lo necesita). Se guarda la fecha en `citas.privacidad_aceptada_en`.
+  Si cambian los datos que se recaban o para qué se usan, actualizar `privacidad.html` y su fecha.
 - `GET /api/reportes` acepta `fecha` (un día) o `desde` / `hasta` (rango) y
   `barbero_id`; los filtros se hacen en SQL, no en el navegador.
 
@@ -94,10 +116,13 @@ Hecho:
    `color_primario` configurable en el panel (Configuración → Identidad del Negocio).
 6. **WhatsApp manual** (PR luisito2806/PW#7): se quitó Baileys y el envío automático;
    mensajes precargados con `wa.me` y plantilla aparte para citas reagendadas.
+5a. **Listo para la primera barbería** (PR luisito2806/PW#8): Railway
+   (`railway.json`, `/api/salud`), respaldos diarios y descargables, Aviso de
+   Privacidad con aceptación obligatoria, dependencias sin vulnerabilidades.
 
 Pendiente (en este orden):
-5. **Para vender como SaaS:** multi-negocio (`negocio_id` en todas las tablas,
-   subdominio por cliente, usuarios con roles), Postgres, cobro de suscripción
-   (Stripe o Mercado Pago), respaldos, HTTPS y Aviso de Privacidad (LFPDPPP).
+5b. **Cuando haya ~10 barberías:** una sola plataforma multi-negocio (`negocio_id` en
+   todas las tablas, subdominio por cliente, usuarios con roles), Postgres, registro
+   y cobro de suscripción (Mercado Pago o Stripe).
 7. **Mejoras de producto:** horario distinto por barbero, anticipo o pago en línea
    para reducir faltas, y cambiar "barbero" por un término configurable según el giro.

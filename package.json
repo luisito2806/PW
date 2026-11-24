@@ -16,5 +16,8 @@
   "bugs": {
     "url": "https://github.com/luisito2806/PW/issues"
   },
-  "homepage": "https://github.com/luisito2806/PW#readme"
+  "homepage": "https://github.com/luisito2806/PW#readme",
+  "engines": {
+    "node": ">=22"
+  }
 }
