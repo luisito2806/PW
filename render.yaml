@@ -1,0 +1,20 @@
+# Configuración para Render (https://render.com). Plan gratuito: el servicio se
+# duerme tras 15 minutos sin visitas y tarda alrededor de un minuto en despertar.
+services:
+  - type: web
+    name: doo-barber
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      - key: TRUST_PROXY
+        value: "1"
+      - key: TZ
+        value: America/Mexico_City
