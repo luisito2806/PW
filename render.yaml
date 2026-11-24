@@ -1,13 +1,16 @@
 # Configuración para Render (https://render.com). Plan gratuito: el servicio se
 # duerme tras 15 minutos sin visitas y tarda alrededor de un minuto en despertar.
+#
+# sqlite3 se compila en el servidor (--build-from-source): el binario que descarga
+# por defecto pide GLIBC 2.38, más nueva que la de Render, y no arranca.
 services:
   - type: web
     name: doo-barber
     runtime: node
     plan: free
     rootDir: backend
-    buildCommand: npm install
-    startCommand: npm start
+    buildCommand: npm install --build-from-source
+    startCommand: node app.js
     healthCheckPath: /
     envVars:
       - key: NODE_VERSION
